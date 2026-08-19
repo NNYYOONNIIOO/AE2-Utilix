@@ -227,8 +227,6 @@ public class ItemDevicePackage extends Item {
         // replace or consume the selected hand while adding a part; removing the
         // package first makes that interaction unable to leave the original
         // package behind after a successful placement.
-        ItemStack remainingPackage = packageStack.copy();
-        remainingPackage.shrink(1);
         player.setHeldItem(hand, ItemStack.EMPTY);
         boolean placedSuccessfully = false;
         try {
@@ -250,10 +248,14 @@ public class ItemDevicePackage extends Item {
             placedSuccessfully = true;
             return EnumActionResult.SUCCESS;
         } finally {
-            // Restore only on failure. On success the held slot contains the
-            // decremented package stack (empty for the normal max-stack-size 1).
-            ItemStack result = placedSuccessfully && remainingPackage.isEmpty()
-                    ? ItemStack.EMPTY : (placedSuccessfully ? remainingPackage : packageStack);
+            // Match ExtendedAE exactly: mutate the original pack captured from
+            // the hand. If Forge/AE2 restores that same reference after cable
+            // interaction, its count is already zero and cannot duplicate.
+            if (placedSuccessfully) {
+                packageStack.shrink(1);
+            }
+            ItemStack result = placedSuccessfully && packageStack.isEmpty()
+                    ? ItemStack.EMPTY : packageStack;
             player.setHeldItem(hand, result);
             player.inventory.markDirty();
         }
