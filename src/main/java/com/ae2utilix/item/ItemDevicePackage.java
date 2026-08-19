@@ -3,7 +3,6 @@ package com.ae2utilix.item;
 import appeng.api.AEApi;
 import appeng.api.parts.IPart;
 import appeng.api.parts.IPartHost;
-import appeng.api.util.AEPartLocation;
 import appeng.parts.PartPlacement;
 import com.ae2utilix.AE2Utilix;
 import net.minecraft.block.Block;
@@ -185,43 +184,33 @@ public class ItemDevicePackage extends Item {
 
     private EnumActionResult placePartPackage(EntityPlayer player, World world, BlockPos pos, EnumFacing side,
             EnumHand hand, ItemStack packageStack) {
-        ItemStack originalHeld = player.getHeldItem(hand);
-        ItemStack partStack = getTargetStack(originalHeld);
+        ItemStack partStack = getTargetStack(packageStack);
         if (!(partStack.getItem() instanceof appeng.api.parts.IPartItem)) {
             return EnumActionResult.FAIL;
         }
 
-        PartPlacement.Placement placement;
-        EnumActionResult result;
-        // PartPlacement.place is AE2's original path. It expects the actual
-        // IPartItem in the requested hand and performs the normal placement and
-        // temporary part-stack consumption itself. Keep the package in hand
-        // outside this scope, then consume that package only after success.
-        player.setHeldItem(hand, partStack);
-        try {
-            placement = PartPlacement.getPartPlacement(player, world, partStack, pos, side);
-            if (placement == null) {
-                return EnumActionResult.FAIL;
-            }
-            result = PartPlacement.place(partStack, pos, side, player, hand, world);
-        } finally {
-            player.setHeldItem(hand, originalHeld);
+        PartPlacement.Placement placement = PartPlacement.getPartPlacement(player, world, partStack, pos, side);
+        if (placement == null) {
+            return EnumActionResult.FAIL;
         }
-        if (result != EnumActionResult.SUCCESS) {
-            return result;
+
+        // placePart only creates the part. Do not call PartPlacement.place here:
+        // that method also consumes the supplied stack and manipulates the
+        // player's hand, which is the source of the cable-host duplication path.
+        IPart placed = PartPlacement.placePart(player, world, partStack,
+                placement.pos(), placement.side(), hand);
+        if (placed == null) {
+            return EnumActionResult.FAIL;
         }
 
         IPartHost host = AEApi.instance().partHelper().getPartHost(world, placement.pos());
+        placed.readFromNBT(getStoredData(packageStack));
         if (host != null) {
-            IPart placed = host.getPart(AEPartLocation.fromFacing(placement.side()));
-            if (placed != null) {
-                placed.readFromNBT(getStoredData(packageStack));
-                host.markForSave();
-                host.markForUpdate();
-                host.notifyNeighbors();
-            }
+            host.markForSave();
+            host.markForUpdate();
+            host.notifyNeighbors();
         }
-        consumePackage(player, hand, originalHeld);
+        consumePackage(player, hand);
         return EnumActionResult.SUCCESS;
     }
 
@@ -269,21 +258,25 @@ public class ItemDevicePackage extends Item {
         tile.markDirty();
         world.notifyBlockUpdate(placementPos, world.getBlockState(placementPos),
                 world.getBlockState(placementPos), 3);
-        consumePackage(player, hand, packageStack);
+        consumePackage(player, hand);
         return EnumActionResult.SUCCESS;
     }
 
-    private static void consumePackage(EntityPlayer player, EnumHand hand, ItemStack packageStack) {
+    private static void consumePackage(EntityPlayer player, EnumHand hand) {
         if (!player.isCreative()) {
-            // Match AE2's PartPlacement.place consumption logic: mutate the
-            // original held stack, then explicitly replace an exhausted stack
-            // with ItemStack.EMPTY. This is important for existing cable hosts,
-            // whose placement code can temporarily replace the hand stack.
-            packageStack.shrink(1);
-            if (packageStack.getCount() == 0) {
+            // Consume the stack that is actually in the selected hand. The part
+            // placement above never substitutes this stack with the temporary
+            // IPartItem, so this is the same inventory operation for cable hosts
+            // and ordinary block faces.
+            ItemStack held = player.getHeldItem(hand);
+            if (held.isEmpty() || held.getItem() != AE2Utilix.DEVICE_PACKAGE) {
+                return;
+            }
+            held.shrink(1);
+            if (held.isEmpty()) {
                 player.setHeldItem(hand, ItemStack.EMPTY);
             } else {
-                player.setHeldItem(hand, packageStack);
+                player.setHeldItem(hand, held);
             }
             player.inventory.markDirty();
         }
