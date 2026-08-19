@@ -3,7 +3,7 @@ package com.ae2utilix.item;
 import appeng.api.AEApi;
 import appeng.api.parts.IPart;
 import appeng.api.parts.IPartHost;
-import appeng.api.parts.PartItemStack;
+import appeng.api.util.AEPartLocation;
 import appeng.parts.PartPlacement;
 import com.ae2utilix.AE2Utilix;
 import net.minecraft.block.Block;
@@ -145,6 +145,25 @@ public class ItemDevicePackage extends Item {
     }
 
     @Override
+    public EnumActionResult onItemUseFirst(EntityPlayer player, World world, BlockPos pos, EnumFacing side,
+            float hitX, float hitY, float hitZ, EnumHand hand) {
+        ItemStack held = player.getHeldItem(hand);
+        if (!isPartPackage(held)) {
+            return EnumActionResult.PASS;
+        }
+        if (!player.canPlayerEdit(pos, side, held)) {
+            return EnumActionResult.FAIL;
+        }
+        // The server must handle this before an AE2 cable bus gets a chance to
+        // process the click. The client stays PASS so the normal server click is
+        // not short-circuited by a client-only result.
+        if (world.isRemote) {
+            return EnumActionResult.PASS;
+        }
+        return placePartPackage(player, world, pos, side, hand, held);
+    }
+
+    @Override
     public EnumActionResult onItemUse(EntityPlayer player, World world, BlockPos pos, EnumHand hand,
             EnumFacing side, float hitX, float hitY, float hitZ) {
         ItemStack held = player.getHeldItem(hand);
@@ -173,32 +192,34 @@ public class ItemDevicePackage extends Item {
         }
 
         PartPlacement.Placement placement;
-        IPart placed;
-        // AE2's placement helper reads the stack in the requested hand as well
-        // as the stack argument. Expose the temporary part there, then restore
-        // the package in every path so AE2 cannot replace it with a part stack.
-        player.setHeldItem(hand, partStack.copy());
+        EnumActionResult result;
+        // PartPlacement.place is AE2's original path. It expects the actual
+        // IPartItem in the requested hand and performs the normal placement and
+        // temporary part-stack consumption itself. Keep the package in hand
+        // outside this scope, then consume that package only after success.
+        player.setHeldItem(hand, partStack);
         try {
             placement = PartPlacement.getPartPlacement(player, world, partStack, pos, side);
             if (placement == null) {
                 return EnumActionResult.FAIL;
             }
-
-            placed = PartPlacement.placePart(player, world, partStack,
-                    placement.pos(), placement.side(), hand);
+            result = PartPlacement.place(partStack, pos, side, player, hand, world);
         } finally {
             player.setHeldItem(hand, originalHeld);
         }
-        if (placed == null) {
-            return EnumActionResult.FAIL;
+        if (result != EnumActionResult.SUCCESS) {
+            return result;
         }
 
         IPartHost host = AEApi.instance().partHelper().getPartHost(world, placement.pos());
-        placed.readFromNBT(getStoredData(packageStack));
         if (host != null) {
-            host.markForSave();
-            host.markForUpdate();
-            host.notifyNeighbors();
+            IPart placed = host.getPart(AEPartLocation.fromFacing(placement.side()));
+            if (placed != null) {
+                placed.readFromNBT(getStoredData(packageStack));
+                host.markForSave();
+                host.markForUpdate();
+                host.notifyNeighbors();
+            }
         }
         consumePackage(player, hand, originalHeld);
         return EnumActionResult.SUCCESS;
