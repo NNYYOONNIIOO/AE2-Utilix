@@ -147,7 +147,7 @@ public class ItemDevicePackage extends Item {
         return target.isEmpty() ? null : target.getDisplayName();
     }
 
-    @SubscribeEvent(priority = EventPriority.HIGHEST, receiveCanceled = true)
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
         EntityPlayer player = event.getEntityPlayer();
         EnumHand hand = event.getHand();
@@ -167,10 +167,12 @@ public class ItemDevicePackage extends Item {
             return;
         }
 
+        // Stop lower-priority cable handlers before placing the part. If the
+        // placement cannot be completed, restore the normal interaction below.
+        event.setCanceled(true);
         if (placePartPackage(player, event.getWorld(), event.getPos(), event.getFace(), hand, packageStack)
-                == EnumActionResult.SUCCESS) {
-            event.setCanceled(true);
-        } else {
+                != EnumActionResult.SUCCESS) {
+            event.setCanceled(false);
             // No valid placement: preserve the normal cable/block interaction.
             event.setUseBlock(Event.Result.DEFAULT);
             event.setUseItem(Event.Result.DEFAULT);
@@ -228,22 +230,38 @@ public class ItemDevicePackage extends Item {
             return EnumActionResult.FAIL;
         }
 
-        // placePart only creates the part. As in ExtendedAE, pass no hand so
-        // AE2 cannot apply normal IPartItem consumption to our package slot.
-        IPart placed = PartPlacement.placePart(player, world, partStack,
-                placement.pos(), placement.side(), null);
-        if (placed == null) {
-            return EnumActionResult.FAIL;
-        }
+        // Reserve one package before touching an existing cable host. This is
+        // the important difference from consuming after placement: if AE2 or
+        // Forge restores the original hand reference, it already has the
+        // decremented count and cannot duplicate the package.
+        int originalCount = packageStack.getCount();
+        packageStack.shrink(1);
+        player.setHeldItem(hand, packageStack.isEmpty() ? ItemStack.EMPTY : packageStack);
+        boolean placedSuccessfully = false;
+        try {
+            // placePart only creates the part. As in ExtendedAE, pass no hand so
+            // AE2 cannot apply normal IPartItem consumption to our package slot.
+            IPart placed = PartPlacement.placePart(player, world, partStack,
+                    placement.pos(), placement.side(), null);
+            if (placed == null) {
+                return EnumActionResult.FAIL;
+            }
 
-        IPartHost host = AEApi.instance().partHelper().getPartHost(world, placement.pos());
-        placed.readFromNBT(getStoredData(packageStack));
-        if (host != null) {
-            host.markForSave();
-            host.markForUpdate();
+            IPartHost host = AEApi.instance().partHelper().getPartHost(world, placement.pos());
+            placed.readFromNBT(getStoredData(packageStack));
+            if (host != null) {
+                host.markForSave();
+                host.markForUpdate();
+            }
+            placedSuccessfully = true;
+            return EnumActionResult.SUCCESS;
+        } finally {
+            if (!placedSuccessfully) {
+                packageStack.setCount(originalCount);
+            }
+            player.setHeldItem(hand, packageStack.isEmpty() ? ItemStack.EMPTY : packageStack);
+            player.inventory.markDirty();
         }
-        consumePackage(player, hand, packageStack);
-        return EnumActionResult.SUCCESS;
     }
 
     private EnumActionResult placeBlockPackage(EntityPlayer player, World world, BlockPos pos, EnumFacing side,
