@@ -294,22 +294,20 @@ public class ItemDevicePackage extends Item {
     }
 
     private static void consumePackage(EntityPlayer player, EnumHand hand, ItemStack packageStack) {
-        if (!player.isCreative()) {
-            // Match ExtendedAE's ItemPackedDevice: keep the package stack captured
-            // before placement and shrink that exact stack after placePart returns.
-            // AE2 may change the selected hand while adding a part to an existing
-            // cable host, so reading the hand again here can miss the package.
-            if (packageStack.isEmpty() || packageStack.getItem() != AE2Utilix.DEVICE_PACKAGE) {
-                return;
-            }
-            packageStack.shrink(1);
-            if (packageStack.isEmpty()) {
-                player.setHeldItem(hand, ItemStack.EMPTY);
-            } else {
-                player.setHeldItem(hand, packageStack);
-            }
-            player.inventory.markDirty();
+        // Match ExtendedAE's ItemPackedDevice: keep the package stack captured
+        // before placement and shrink that exact stack after placePart returns.
+        // This is intentionally not guarded by isCreative(); EAE consumes a
+        // successfully placed package in creative mode as well.
+        if (packageStack.isEmpty() || packageStack.getItem() != AE2Utilix.DEVICE_PACKAGE) {
+            return;
         }
+        packageStack.shrink(1);
+        if (packageStack.isEmpty()) {
+            player.setHeldItem(hand, ItemStack.EMPTY);
+        } else {
+            player.setHeldItem(hand, packageStack);
+        }
+        player.inventory.markDirty();
     }
 
     @SideOnly(Side.CLIENT)
