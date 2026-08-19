@@ -45,6 +45,31 @@ public class ItemDevicePackage extends Item {
     public static final String KIND_BLOCK = "block";
     public static final String KIND_PART = "part";
 
+    private static void debugLog(String format, Object... args) {
+        if (AE2Utilix.LOGGER != null) {
+            AE2Utilix.LOGGER.info("[DevicePackageDebug] " + String.format(format, args));
+        }
+    }
+
+    private static String describeStack(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) {
+            return "EMPTY";
+        }
+
+        String itemName = stack.getItem() == null ? "null" : String.valueOf(stack.getItem().getRegistryName());
+        NBTTagCompound tag = stack.getTagCompound();
+        String kind = tag == null ? "-" : tag.getString(KIND);
+        String target = "-";
+        int targetDamage = -1;
+        if (tag != null && tag.hasKey(STACK, 10)) {
+            NBTTagCompound stored = tag.getCompoundTag(STACK);
+            target = stored.getString("id");
+            targetDamage = stored.getShort("Damage");
+        }
+        return String.format("item=%s,count=%d,damage=%d,kind=%s,target=%s,targetDamage=%d",
+                itemName, stack.getCount(), stack.getItemDamage(), kind, target, targetDamage);
+    }
+
     public ItemDevicePackage() {
         this.setUnlocalizedName(AE2Utilix.MODID + ".device_package");
         this.setRegistryName(AE2Utilix.MODID, "device_package");
@@ -152,8 +177,17 @@ public class ItemDevicePackage extends Item {
         EntityPlayer player = event.getEntityPlayer();
         EnumHand hand = event.getHand();
         ItemStack packageStack = player.getHeldItem(hand);
+        if (packageStack.isEmpty() || packageStack.getItem() != AE2Utilix.DEVICE_PACKAGE) {
+            return;
+        }
+
+        debugLog("RightClickBlock remote=%s player=%s hand=%s pos=%s face=%s canceled=%s package=%s",
+                event.getWorld().isRemote, player.getName(), hand, event.getPos(), event.getFace(),
+                event.isCanceled(), describeStack(packageStack));
         if (!isPartPackage(packageStack)
                 || !player.canPlayerEdit(event.getPos(), event.getFace(), packageStack)) {
+            debugLog("RightClickBlock ignored validPart=%s canEdit=%s",
+                    isPartPackage(packageStack), player.canPlayerEdit(event.getPos(), event.getFace(), packageStack));
             return;
         }
 
@@ -163,6 +197,8 @@ public class ItemDevicePackage extends Item {
         // performs the authoritative placement and consumption.
         event.setUseBlock(Event.Result.DENY);
         event.setUseItem(Event.Result.DENY);
+        debugLog("RightClickBlock intercepted remote=%s useBlock/useItem=DENY handBefore=%s",
+                event.getWorld().isRemote, describeStack(player.getHeldItem(hand)));
         if (event.getWorld().isRemote) {
             return;
         }
@@ -170,8 +206,11 @@ public class ItemDevicePackage extends Item {
         // Stop lower-priority cable handlers before placing the part. If the
         // placement cannot be completed, restore the normal interaction below.
         event.setCanceled(true);
-        if (placePartPackage(player, event.getWorld(), event.getPos(), event.getFace(), hand, packageStack)
-                != EnumActionResult.SUCCESS) {
+        EnumActionResult result = placePartPackage(player, event.getWorld(), event.getPos(), event.getFace(), hand,
+                packageStack);
+        debugLog("RightClickBlock placementResult=%s canceledBefore=%s handAfter=%s",
+                result, event.isCanceled(), describeStack(player.getHeldItem(hand)));
+        if (result != EnumActionResult.SUCCESS) {
             event.setCanceled(false);
             // No valid placement: preserve the normal cable/block interaction.
             event.setUseBlock(Event.Result.DEFAULT);
@@ -183,6 +222,10 @@ public class ItemDevicePackage extends Item {
     public EnumActionResult onItemUseFirst(EntityPlayer player, World world, BlockPos pos, EnumFacing side,
             float hitX, float hitY, float hitZ, EnumHand hand) {
         ItemStack held = player.getHeldItem(hand);
+        if (!held.isEmpty() && held.getItem() == AE2Utilix.DEVICE_PACKAGE) {
+            debugLog("onItemUseFirst remote=%s player=%s hand=%s pos=%s face=%s package=%s",
+                    world.isRemote, player.getName(), hand, pos, side, describeStack(held));
+        }
         if (!isPartPackage(held)) {
             return EnumActionResult.PASS;
         }
@@ -193,15 +236,22 @@ public class ItemDevicePackage extends Item {
         // the client, then perform the actual placement on the server. This
         // prevents the cable block from handling the same click first.
         if (world.isRemote) {
+            debugLog("onItemUseFirst clientResult=SUCCESS package=%s", describeStack(held));
             return EnumActionResult.SUCCESS;
         }
-        return placePartPackage(player, world, pos, side, hand, held);
+        EnumActionResult result = placePartPackage(player, world, pos, side, hand, held);
+        debugLog("onItemUseFirst serverResult=%s handAfter=%s", result, describeStack(player.getHeldItem(hand)));
+        return result;
     }
 
     @Override
     public EnumActionResult onItemUse(EntityPlayer player, World world, BlockPos pos, EnumHand hand,
             EnumFacing side, float hitX, float hitY, float hitZ) {
         ItemStack held = player.getHeldItem(hand);
+        if (!held.isEmpty() && held.getItem() == AE2Utilix.DEVICE_PACKAGE) {
+            debugLog("onItemUse remote=%s player=%s hand=%s pos=%s face=%s package=%s",
+                    world.isRemote, player.getName(), hand, pos, side, describeStack(held));
+        }
         if (!isValidPackage(held)) {
             return EnumActionResult.FAIL;
         }
@@ -213,22 +263,33 @@ public class ItemDevicePackage extends Item {
         }
 
         if (isPartPackage(held)) {
-            return placePartPackage(player, world, pos, side, hand, held);
+            EnumActionResult result = placePartPackage(player, world, pos, side, hand, held);
+            debugLog("onItemUse partResult=%s handAfter=%s", result, describeStack(player.getHeldItem(hand)));
+            return result;
         }
         return placeBlockPackage(player, world, pos, side, hitX, hitY, hitZ, hand, held);
     }
 
     private EnumActionResult placePartPackage(EntityPlayer player, World world, BlockPos pos, EnumFacing side,
             EnumHand hand, ItemStack packageStack) {
+        debugLog("placePartPackage START remote=%s player=%s hand=%s pos=%s side=%s package=%s",
+                world.isRemote, player.getName(), hand, pos, side, describeStack(packageStack));
         ItemStack partStack = getTargetStack(packageStack);
         if (!(partStack.getItem() instanceof appeng.api.parts.IPartItem)) {
+            debugLog("placePartPackage FAIL targetNotPart target=%s", describeStack(partStack));
             return EnumActionResult.FAIL;
         }
 
+        debugLog("placePartPackage target=%s", describeStack(partStack));
+
         PartPlacement.Placement placement = PartPlacement.getPartPlacement(player, world, partStack, pos, side);
         if (placement == null) {
+            debugLog("placePartPackage FAIL noPlacement pos=%s side=%s", pos, side);
             return EnumActionResult.FAIL;
         }
+
+        debugLog("placePartPackage placement=%s/%s packageBefore=%s handBefore=%s",
+                placement.pos(), placement.side(), describeStack(packageStack), describeStack(player.getHeldItem(hand)));
 
         // Reserve one package before touching an existing cable host. This is
         // the important difference from consuming after placement: if AE2 or
@@ -237,6 +298,8 @@ public class ItemDevicePackage extends Item {
         int originalCount = packageStack.getCount();
         packageStack.shrink(1);
         player.setHeldItem(hand, packageStack.isEmpty() ? ItemStack.EMPTY : packageStack);
+        debugLog("placePartPackage preConsumed originalCount=%d packageRef=%s handAfterPreConsume=%s",
+                originalCount, describeStack(packageStack), describeStack(player.getHeldItem(hand)));
         boolean placedSuccessfully = false;
         try {
             // placePart only creates the part. As in ExtendedAE, pass no hand so
@@ -244,16 +307,23 @@ public class ItemDevicePackage extends Item {
             IPart placed = PartPlacement.placePart(player, world, partStack,
                     placement.pos(), placement.side(), null);
             if (placed == null) {
+                debugLog("placePartPackage FAIL placePartReturnedNull package=%s hand=%s",
+                        describeStack(packageStack), describeStack(player.getHeldItem(hand)));
                 return EnumActionResult.FAIL;
             }
 
             IPartHost host = AEApi.instance().partHelper().getPartHost(world, placement.pos());
+            debugLog("placePartPackage placePartSuccess part=%s host=%s package=%s hand=%s",
+                    placed.getClass().getName(), host == null ? "null" : host.getClass().getName(),
+                    describeStack(packageStack), describeStack(player.getHeldItem(hand)));
             placed.readFromNBT(getStoredData(packageStack));
             if (host != null) {
                 host.markForSave();
                 host.markForUpdate();
             }
             placedSuccessfully = true;
+            debugLog("placePartPackage SUCCESS package=%s hand=%s", describeStack(packageStack),
+                    describeStack(player.getHeldItem(hand)));
             return EnumActionResult.SUCCESS;
         } finally {
             if (!placedSuccessfully) {
@@ -261,6 +331,8 @@ public class ItemDevicePackage extends Item {
             }
             player.setHeldItem(hand, packageStack.isEmpty() ? ItemStack.EMPTY : packageStack);
             player.inventory.markDirty();
+            debugLog("placePartPackage END success=%s restored=%s handFinal=%s",
+                    placedSuccessfully, describeStack(packageStack), describeStack(player.getHeldItem(hand)));
         }
     }
 
