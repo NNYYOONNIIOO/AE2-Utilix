@@ -223,26 +223,38 @@ public class ItemDevicePackage extends Item {
             return EnumActionResult.FAIL;
         }
 
-        // placePart only creates the part. Do not pass the package hand here:
-        // AE2's existing cable host may use that hand for normal IPartItem
-        // consumption, but the hand contains our package rather than partStack.
-        // ExtendedAE uses the same approach (no hand) and consumes its package
-        // explicitly only after placement succeeds.
-        IPart placed = PartPlacement.placePart(player, world, partStack,
-                placement.pos(), placement.side(), null);
-        if (placed == null) {
-            return EnumActionResult.FAIL;
-        }
+        // Reserve the package before touching an existing cable host. AE2 may
+        // replace or consume the selected hand while adding a part; removing the
+        // package first makes that interaction unable to leave the original
+        // package behind after a successful placement.
+        ItemStack remainingPackage = packageStack.copy();
+        remainingPackage.shrink(1);
+        player.setHeldItem(hand, ItemStack.EMPTY);
+        boolean placedSuccessfully = false;
+        try {
+            // placePart only creates the part. As in ExtendedAE, pass no hand so
+            // AE2 cannot apply normal IPartItem consumption to our package slot.
+            IPart placed = PartPlacement.placePart(player, world, partStack,
+                    placement.pos(), placement.side(), null);
+            if (placed == null) {
+                return EnumActionResult.FAIL;
+            }
 
-        IPartHost host = AEApi.instance().partHelper().getPartHost(world, placement.pos());
-        placed.readFromNBT(getStoredData(packageStack));
-        if (host != null) {
-            host.markForSave();
-            host.markForUpdate();
-            host.notifyNeighbors();
+            IPartHost host = AEApi.instance().partHelper().getPartHost(world, placement.pos());
+            placed.readFromNBT(getStoredData(packageStack));
+            if (host != null) {
+                host.markForSave();
+                host.markForUpdate();
+                host.notifyNeighbors();
+            }
+            placedSuccessfully = true;
+            return EnumActionResult.SUCCESS;
+        } finally {
+            // Restore only on failure. On success the held slot contains the
+            // decremented package stack (empty for the normal max-stack-size 1).
+            player.setHeldItem(hand, placedSuccessfully ? remainingPackage : packageStack);
+            player.inventory.markDirty();
         }
-        consumePackage(player, hand, packageStack);
-        return EnumActionResult.SUCCESS;
     }
 
     private EnumActionResult placeBlockPackage(EntityPlayer player, World world, BlockPos pos, EnumFacing side,
