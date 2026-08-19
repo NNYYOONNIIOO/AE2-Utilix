@@ -166,18 +166,29 @@ public class ItemDevicePackage extends Item {
 
     private EnumActionResult placePartPackage(EntityPlayer player, World world, BlockPos pos, EnumFacing side,
             EnumHand hand, ItemStack packageStack) {
-        ItemStack partStack = getTargetStack(packageStack);
+        ItemStack originalHeld = player.getHeldItem(hand);
+        ItemStack partStack = getTargetStack(originalHeld);
         if (!(partStack.getItem() instanceof appeng.api.parts.IPartItem)) {
             return EnumActionResult.FAIL;
         }
 
-        PartPlacement.Placement placement = PartPlacement.getPartPlacement(player, world, partStack, pos, side);
-        if (placement == null) {
-            return EnumActionResult.FAIL;
-        }
+        PartPlacement.Placement placement;
+        IPart placed;
+        // AE2's placement helper reads the stack in the requested hand as well
+        // as the stack argument. Expose the temporary part there, then restore
+        // the package in every path so AE2 cannot replace it with a part stack.
+        player.setHeldItem(hand, partStack.copy());
+        try {
+            placement = PartPlacement.getPartPlacement(player, world, partStack, pos, side);
+            if (placement == null) {
+                return EnumActionResult.FAIL;
+            }
 
-        IPart placed = PartPlacement.placePart(player, world, partStack,
-                placement.pos(), placement.side(), hand);
+            placed = PartPlacement.placePart(player, world, partStack,
+                    placement.pos(), placement.side(), hand);
+        } finally {
+            player.setHeldItem(hand, originalHeld);
+        }
         if (placed == null) {
             return EnumActionResult.FAIL;
         }
@@ -189,7 +200,7 @@ public class ItemDevicePackage extends Item {
             host.markForUpdate();
             host.notifyNeighbors();
         }
-        consumePackage(player, hand, packageStack);
+        consumePackage(player, hand, originalHeld);
         return EnumActionResult.SUCCESS;
     }
 
