@@ -210,7 +210,7 @@ public class ItemDevicePackage extends Item {
             host.markForUpdate();
             host.notifyNeighbors();
         }
-        consumePackage(player, hand);
+        consumePackage(player, hand, packageStack);
         return EnumActionResult.SUCCESS;
     }
 
@@ -258,25 +258,24 @@ public class ItemDevicePackage extends Item {
         tile.markDirty();
         world.notifyBlockUpdate(placementPos, world.getBlockState(placementPos),
                 world.getBlockState(placementPos), 3);
-        consumePackage(player, hand);
+        consumePackage(player, hand, packageStack);
         return EnumActionResult.SUCCESS;
     }
 
-    private static void consumePackage(EntityPlayer player, EnumHand hand) {
+    private static void consumePackage(EntityPlayer player, EnumHand hand, ItemStack packageStack) {
         if (!player.isCreative()) {
-            // Consume the stack that is actually in the selected hand. The part
-            // placement above never substitutes this stack with the temporary
-            // IPartItem, so this is the same inventory operation for cable hosts
-            // and ordinary block faces.
-            ItemStack held = player.getHeldItem(hand);
-            if (held.isEmpty() || held.getItem() != AE2Utilix.DEVICE_PACKAGE) {
+            // Match ExtendedAE's ItemPackedDevice: keep the package stack captured
+            // before placement and shrink that exact stack after placePart returns.
+            // AE2 may change the selected hand while adding a part to an existing
+            // cable host, so reading the hand again here can miss the package.
+            if (packageStack.isEmpty() || packageStack.getItem() != AE2Utilix.DEVICE_PACKAGE) {
                 return;
             }
-            held.shrink(1);
-            if (held.isEmpty()) {
+            packageStack.shrink(1);
+            if (packageStack.isEmpty()) {
                 player.setHeldItem(hand, ItemStack.EMPTY);
             } else {
-                player.setHeldItem(hand, held);
+                player.setHeldItem(hand, packageStack);
             }
             player.inventory.markDirty();
         }
