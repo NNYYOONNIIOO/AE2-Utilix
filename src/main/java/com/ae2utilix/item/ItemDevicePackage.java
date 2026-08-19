@@ -28,6 +28,8 @@ import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 
 import javax.annotation.Nullable;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.util.List;
 
 /**
@@ -332,7 +334,7 @@ public class ItemDevicePackage extends Item {
             debugLog("placePartPackage placePartSuccess part=%s host=%s package=%s hand=%s",
                     placed.getClass().getName(), host == null ? "null" : host.getClass().getName(),
                     describeStack(packageStack), describeStack(player.getHeldItem(hand)));
-            placed.readFromNBT(placementData);
+            restorePartData(placed, placementData);
             if (host != null) {
                 host.markForSave();
                 host.markForUpdate();
@@ -362,6 +364,101 @@ public class ItemDevicePackage extends Item {
             player.inventory.markDirty();
             debugLog("placePartPackage END success=%s restored=%s handFinal=%s",
                     placedSuccessfully, describeStack(packageStack), describeStack(player.getHeldItem(hand)));
+        }
+    }
+
+    /**
+     * A 1.12.2 AE2 part is attached to the cable bus, and consequently to the
+     * new grid, inside PartPlacement.placePart(). A normal readFromNBT call at
+     * this point makes GridNode reject the load with "Loading data after part
+     * of a grid". The package contains the old part's settings, not its old
+     * network membership, so temporarily detach the new node's grid reference
+     * while AE2 reads the settings and restore the live grid immediately after.
+     */
+    private static void restorePartData(IPart part, NBTTagCompound data) {
+        final java.util.List<GridReference> detached = new java.util.ArrayList<>();
+        final java.util.Set<Object> visited = java.util.Collections.newSetFromMap(
+                new java.util.IdentityHashMap<Object, Boolean>());
+        final java.util.ArrayDeque<Object> pending = new java.util.ArrayDeque<>();
+        pending.add(part);
+
+        try {
+            int scanned = 0;
+            while (!pending.isEmpty() && scanned++ < 256) {
+                Object current = pending.removeFirst();
+                if (current == null || !visited.add(current) || !isAppEngObject(current)) {
+                    continue;
+                }
+
+                Class<?> type = current.getClass();
+                while (type != null && type != Object.class) {
+                    for (Field field : type.getDeclaredFields()) {
+                        final int modifiers = field.getModifiers();
+                        if (Modifier.isStatic(modifiers) || field.getType().isPrimitive()) {
+                            continue;
+                        }
+
+                        try {
+                            field.setAccessible(true);
+                            Object value = field.get(current);
+                            if ("myGrid".equals(field.getName())
+                                    && "appeng.me.Grid".equals(field.getType().getName())) {
+                                if (value != null) {
+                                    field.set(current, null);
+                                    detached.add(new GridReference(current, field, value));
+                                    debugLog("restorePartData detachedGrid owner=%s",
+                                            current.getClass().getName());
+                                }
+                                continue;
+                            }
+
+                            if (isAppEngObject(value)) {
+                                pending.addLast(value);
+                            }
+                        } catch (Exception ex) {
+                            debugLog("restorePartData fieldSkipped owner=%s field=%s error=%s",
+                                    current.getClass().getName(), field.getName(), ex.toString());
+                        }
+                    }
+                    type = type.getSuperclass();
+                }
+            }
+
+            if (detached.isEmpty()) {
+                debugLog("restorePartData noGridReferenceFound part=%s", part.getClass().getName());
+            }
+            part.readFromNBT(data);
+        } finally {
+            for (int index = detached.size() - 1; index >= 0; index--) {
+                GridReference reference = detached.get(index);
+                try {
+                    reference.field.setAccessible(true);
+                    reference.field.set(reference.owner, reference.originalGrid);
+                } catch (Exception ex) {
+                    debugLog("restorePartData restoreGridFailed owner=%s error=%s",
+                            reference.owner.getClass().getName(), ex.toString());
+                }
+            }
+        }
+    }
+
+    private static boolean isAppEngObject(Object value) {
+        if (value == null) {
+            return false;
+        }
+        String className = value.getClass().getName();
+        return className.startsWith("appeng.") || className.startsWith("com.ae2utilix.");
+    }
+
+    private static final class GridReference {
+        private final Object owner;
+        private final Field field;
+        private final Object originalGrid;
+
+        private GridReference(Object owner, Field field, Object originalGrid) {
+            this.owner = owner;
+            this.field = field;
+            this.originalGrid = originalGrid;
         }
     }
 
