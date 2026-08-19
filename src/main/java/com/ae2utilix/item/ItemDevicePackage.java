@@ -254,14 +254,16 @@ public class ItemDevicePackage extends Item {
 
     private static void consumePackage(EntityPlayer player, EnumHand hand, ItemStack packageStack) {
         if (!player.isCreative()) {
-            // AE2's part placement receives a temporary copy of the packed part
-            // and may touch the player's hand while it creates the part. Build the
-            // remaining package from the original package and write it back to the
-            // exact hand slot, so a successfully placed part can never duplicate
-            // the package.
-            ItemStack remaining = packageStack.copy();
-            remaining.shrink(1);
-            player.setHeldItem(hand, remaining);
+            // Match AE2's PartPlacement.place consumption logic: mutate the
+            // original held stack, then explicitly replace an exhausted stack
+            // with ItemStack.EMPTY. This is important for existing cable hosts,
+            // whose placement code can temporarily replace the hand stack.
+            packageStack.shrink(1);
+            if (packageStack.getCount() == 0) {
+                player.setHeldItem(hand, ItemStack.EMPTY);
+            } else {
+                player.setHeldItem(hand, packageStack);
+            }
             player.inventory.markDirty();
         }
     }
