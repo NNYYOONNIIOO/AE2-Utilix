@@ -3,6 +3,7 @@ package com.ae2utilix.item;
 import appeng.api.AEApi;
 import appeng.api.parts.IPart;
 import appeng.api.parts.IPartHost;
+import appeng.api.util.AEPartLocation;
 import appeng.parts.PartPlacement;
 import com.ae2utilix.AE2Utilix;
 import net.minecraft.block.Block;
@@ -151,6 +152,15 @@ public class ItemDevicePackage extends Item {
         return packageStack.getTagCompound().getCompoundTag(DATA).copy();
     }
 
+    private static NBTTagCompound getPlacementData(ItemStack packageStack) {
+        NBTTagCompound data = getStoredData(packageStack);
+        // This is the old part's runtime grid-node state. A newly placed part
+        // already belongs to its new cable grid, so loading it after addPart()
+        // throws "Loading data after part of a grid, this is invalid".
+        data.removeTag("part");
+        return data;
+    }
+
     public static int getPartSide(ItemStack packageStack) {
         if (!isPartPackage(packageStack)) {
             return -1;
@@ -280,6 +290,10 @@ public class ItemDevicePackage extends Item {
             return EnumActionResult.FAIL;
         }
 
+        NBTTagCompound placementData = getPlacementData(packageStack);
+        debugLog("placePartPackage sanitizedData hasPart=%s keys=%s",
+                placementData.hasKey("part", 10), placementData.getKeySet());
+
         debugLog("placePartPackage target=%s", describeStack(partStack));
 
         PartPlacement.Placement placement = PartPlacement.getPartPlacement(player, world, partStack, pos, side);
@@ -316,7 +330,15 @@ public class ItemDevicePackage extends Item {
             debugLog("placePartPackage placePartSuccess part=%s host=%s package=%s hand=%s",
                     placed.getClass().getName(), host == null ? "null" : host.getClass().getName(),
                     describeStack(packageStack), describeStack(player.getHeldItem(hand)));
-            placed.readFromNBT(getStoredData(packageStack));
+            try {
+                placed.readFromNBT(placementData);
+            } catch (IllegalStateException ex) {
+                debugLog("placePartPackage FAIL dataRestore exception=%s", ex.toString());
+                if (host != null) {
+                    host.removePart(AEPartLocation.fromFacing(placement.side()), false);
+                }
+                return EnumActionResult.FAIL;
+            }
             if (host != null) {
                 host.markForSave();
                 host.markForUpdate();
