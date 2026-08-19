@@ -315,10 +315,12 @@ public class ItemDevicePackage extends Item {
         debugLog("placePartPackage preConsumed originalCount=%d packageRef=%s handAfterPreConsume=%s",
                 originalCount, describeStack(packageStack), describeStack(player.getHeldItem(hand)));
         boolean placedSuccessfully = false;
+        IPart placed = null;
+        IPartHost host = null;
         try {
             // placePart only creates the part. As in ExtendedAE, pass no hand so
             // AE2 cannot apply normal IPartItem consumption to our package slot.
-            IPart placed = PartPlacement.placePart(player, world, partStack,
+            placed = PartPlacement.placePart(player, world, partStack,
                     placement.pos(), placement.side(), null);
             if (placed == null) {
                 debugLog("placePartPackage FAIL placePartReturnedNull package=%s hand=%s",
@@ -326,19 +328,11 @@ public class ItemDevicePackage extends Item {
                 return EnumActionResult.FAIL;
             }
 
-            IPartHost host = AEApi.instance().partHelper().getPartHost(world, placement.pos());
+            host = AEApi.instance().partHelper().getPartHost(world, placement.pos());
             debugLog("placePartPackage placePartSuccess part=%s host=%s package=%s hand=%s",
                     placed.getClass().getName(), host == null ? "null" : host.getClass().getName(),
                     describeStack(packageStack), describeStack(player.getHeldItem(hand)));
-            try {
-                placed.readFromNBT(placementData);
-            } catch (IllegalStateException ex) {
-                debugLog("placePartPackage FAIL dataRestore exception=%s", ex.toString());
-                if (host != null) {
-                    host.removePart(AEPartLocation.fromFacing(placement.side()), false);
-                }
-                return EnumActionResult.FAIL;
-            }
+            placed.readFromNBT(placementData);
             if (host != null) {
                 host.markForSave();
                 host.markForUpdate();
@@ -347,6 +341,19 @@ public class ItemDevicePackage extends Item {
             debugLog("placePartPackage SUCCESS package=%s hand=%s", describeStack(packageStack),
                     describeStack(player.getHeldItem(hand)));
             return EnumActionResult.SUCCESS;
+        } catch (RuntimeException ex) {
+            debugLog("placePartPackage FAIL exception=%s package=%s hand=%s",
+                    ex.toString(), describeStack(packageStack), describeStack(player.getHeldItem(hand)));
+            if (host != null && placed != null) {
+                AEPartLocation location = AEPartLocation.fromFacing(placement.side());
+                if (host.getPart(location) == placed) {
+                    host.removePart(location, false);
+                    host.markForSave();
+                    host.markForUpdate();
+                    debugLog("placePartPackage rolledBackPart location=%s", location);
+                }
+            }
+            return EnumActionResult.FAIL;
         } finally {
             if (!placedSuccessfully) {
                 packageStack.setCount(originalCount);
