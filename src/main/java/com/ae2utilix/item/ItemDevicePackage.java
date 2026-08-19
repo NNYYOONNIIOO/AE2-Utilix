@@ -252,7 +252,9 @@ public class ItemDevicePackage extends Item {
         } finally {
             // Restore only on failure. On success the held slot contains the
             // decremented package stack (empty for the normal max-stack-size 1).
-            player.setHeldItem(hand, placedSuccessfully ? remainingPackage : packageStack);
+            ItemStack result = placedSuccessfully && remainingPackage.isEmpty()
+                    ? ItemStack.EMPTY : (placedSuccessfully ? remainingPackage : packageStack);
+            player.setHeldItem(hand, result);
             player.inventory.markDirty();
         }
     }
