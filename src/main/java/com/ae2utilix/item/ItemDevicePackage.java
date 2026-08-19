@@ -146,7 +146,7 @@ public class ItemDevicePackage extends Item {
         return target.isEmpty() ? null : target.getDisplayName();
     }
 
-    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    @SubscribeEvent(priority = EventPriority.HIGHEST, receiveCanceled = true)
     public void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
         if (event.getWorld().isRemote) {
             return;
@@ -220,11 +220,13 @@ public class ItemDevicePackage extends Item {
             return EnumActionResult.FAIL;
         }
 
-        // placePart only creates the part. Do not call PartPlacement.place here:
-        // that method also consumes the supplied stack and manipulates the
-        // player's hand, which is the source of the cable-host duplication path.
+        // placePart only creates the part. Do not pass the package hand here:
+        // AE2's existing cable host may use that hand for normal IPartItem
+        // consumption, but the hand contains our package rather than partStack.
+        // ExtendedAE uses the same approach (no hand) and consumes its package
+        // explicitly only after placement succeeds.
         IPart placed = PartPlacement.placePart(player, world, partStack,
-                placement.pos(), placement.side(), hand);
+                placement.pos(), placement.side(), null);
         if (placed == null) {
             return EnumActionResult.FAIL;
         }
