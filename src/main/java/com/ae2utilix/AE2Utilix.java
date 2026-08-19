@@ -53,7 +53,7 @@ import org.apache.logging.log4j.Logger;
 public class AE2Utilix implements IGuiHandler {
     public static final String MODID = "ae2_utilix";
     public static final String NAME = "AE2\u5B9E\u7528\u5668\u68B0";
-    public static final String VERSION = "1.2.0";
+    public static final String VERSION = "1.2.1";
 
     @Mod.Instance(AE2Utilix.MODID)
     public static AE2Utilix INSTANCE;

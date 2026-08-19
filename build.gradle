@@ -14,7 +14,7 @@ apply plugin: 'net.minecraftforge.gradle'
 apply plugin: 'eclipse'
 apply plugin: 'maven-publish'
 
-version = '1.2.0'
+version = '1.2.1'
 group = 'com.ae2utilix' // http://maven.apache.org/guides/mini/guide-naming-conventions.html
 archivesBaseName = 'ae2_utilix'
 
