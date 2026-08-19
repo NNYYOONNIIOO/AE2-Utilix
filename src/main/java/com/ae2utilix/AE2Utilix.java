@@ -161,7 +161,6 @@ public class AE2Utilix implements IGuiHandler {
         if (AE2UtilixConfig.registerPackerAndDevicePackage) {
             registerItemIf(true, PACKER);
             registerItemIf(true, DEVICE_PACKAGE);
-            MinecraftForge.EVENT_BUS.register(DEVICE_PACKAGE);
         }
         registerItemIf(AE2UtilixConfig.registerBlockStorageBus, BLOCK_STORAGE_BUS);
         if (AE2UtilixConfig.registerCommonBuses) {

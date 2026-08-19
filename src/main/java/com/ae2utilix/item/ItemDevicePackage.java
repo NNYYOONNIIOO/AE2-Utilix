@@ -19,10 +19,6 @@ import net.minecraft.util.EnumFacing;
 import net.minecraft.util.EnumHand;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
-import net.minecraftforge.event.entity.player.PlayerInteractEvent;
-import net.minecraftforge.fml.common.eventhandler.EventPriority;
-import net.minecraftforge.fml.common.eventhandler.Event;
-import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 
@@ -147,31 +143,6 @@ public class ItemDevicePackage extends Item {
         return target.isEmpty() ? null : target.getDisplayName();
     }
 
-    @SubscribeEvent(priority = EventPriority.HIGHEST, receiveCanceled = true)
-    public void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
-        if (event.getWorld().isRemote) {
-            return;
-        }
-
-        EntityPlayer player = event.getEntityPlayer();
-        EnumHand hand = event.getHand();
-        ItemStack packageStack = player.getHeldItem(hand);
-        if (!isPartPackage(packageStack)
-                || !player.canPlayerEdit(event.getPos(), event.getFace(), packageStack)) {
-            return;
-        }
-
-        // Match ExtendedAE's useOn flow: handle the package before an existing
-        // cable host can process the same click, then cancel the event after the
-        // part has been placed so it cannot be placed twice.
-        if (placePartPackage(player, event.getWorld(), event.getPos(), event.getFace(), hand, packageStack)
-                == EnumActionResult.SUCCESS) {
-            event.setUseBlock(Event.Result.DENY);
-            event.setUseItem(Event.Result.DENY);
-            event.setCanceled(true);
-        }
-    }
-
     @Override
     public EnumActionResult onItemUseFirst(EntityPlayer player, World world, BlockPos pos, EnumFacing side,
             float hitX, float hitY, float hitZ, EnumHand hand) {
@@ -182,11 +153,11 @@ public class ItemDevicePackage extends Item {
         if (!player.canPlayerEdit(pos, side, held)) {
             return EnumActionResult.FAIL;
         }
-        // The client must return PASS so PlayerControllerMP sends the normal
-        // right-click packet to the server. Returning SUCCESS here ends the
-        // client interaction before the server can place and consume the package.
+        // Follow ItemPacker's 1.12.2 interaction path: claim the cable click on
+        // the client, then perform the actual placement on the server. This
+        // prevents the cable block from handling the same click first.
         if (world.isRemote) {
-            return EnumActionResult.PASS;
+            return EnumActionResult.SUCCESS;
         }
         return placePartPackage(player, world, pos, side, hand, held);
     }
@@ -223,42 +194,22 @@ public class ItemDevicePackage extends Item {
             return EnumActionResult.FAIL;
         }
 
-        // Reserve the package before touching an existing cable host. AE2 may
-        // replace or consume the selected hand while adding a part; removing the
-        // package first makes that interaction unable to leave the original
-        // package behind after a successful placement.
-        player.setHeldItem(hand, ItemStack.EMPTY);
-        boolean placedSuccessfully = false;
-        try {
-            // placePart only creates the part. As in ExtendedAE, pass no hand so
-            // AE2 cannot apply normal IPartItem consumption to our package slot.
-            IPart placed = PartPlacement.placePart(player, world, partStack,
-                    placement.pos(), placement.side(), null);
-            if (placed == null) {
-                return EnumActionResult.FAIL;
-            }
-
-            IPartHost host = AEApi.instance().partHelper().getPartHost(world, placement.pos());
-            placed.readFromNBT(getStoredData(packageStack));
-            if (host != null) {
-                host.markForSave();
-                host.markForUpdate();
-                host.notifyNeighbors();
-            }
-            placedSuccessfully = true;
-            return EnumActionResult.SUCCESS;
-        } finally {
-            // Match ExtendedAE exactly: mutate the original pack captured from
-            // the hand. If Forge/AE2 restores that same reference after cable
-            // interaction, its count is already zero and cannot duplicate.
-            if (placedSuccessfully) {
-                packageStack.shrink(1);
-            }
-            ItemStack result = placedSuccessfully && packageStack.isEmpty()
-                    ? ItemStack.EMPTY : packageStack;
-            player.setHeldItem(hand, result);
-            player.inventory.markDirty();
+        // placePart only creates the part. As in ExtendedAE, pass no hand so
+        // AE2 cannot apply normal IPartItem consumption to our package slot.
+        IPart placed = PartPlacement.placePart(player, world, partStack,
+                placement.pos(), placement.side(), null);
+        if (placed == null) {
+            return EnumActionResult.FAIL;
         }
+
+        IPartHost host = AEApi.instance().partHelper().getPartHost(world, placement.pos());
+        placed.readFromNBT(getStoredData(packageStack));
+        if (host != null) {
+            host.markForSave();
+            host.markForUpdate();
+        }
+        consumePackage(player, hand, packageStack);
+        return EnumActionResult.SUCCESS;
     }
 
     private EnumActionResult placeBlockPackage(EntityPlayer player, World world, BlockPos pos, EnumFacing side,
