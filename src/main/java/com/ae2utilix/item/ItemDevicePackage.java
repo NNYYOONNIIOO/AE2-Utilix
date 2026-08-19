@@ -19,6 +19,9 @@ import net.minecraft.util.EnumFacing;
 import net.minecraft.util.EnumHand;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
+import net.minecraftforge.event.entity.player.PlayerInteractEvent;
+import net.minecraftforge.fml.common.eventhandler.EventPriority;
+import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 
@@ -141,6 +144,29 @@ public class ItemDevicePackage extends Item {
         }
         ItemStack target = getTargetStack(packageStack);
         return target.isEmpty() ? null : target.getDisplayName();
+    }
+
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
+        if (event.getWorld().isRemote) {
+            return;
+        }
+
+        EntityPlayer player = event.getEntityPlayer();
+        EnumHand hand = event.getHand();
+        ItemStack packageStack = player.getHeldItem(hand);
+        if (!isPartPackage(packageStack)
+                || !player.canPlayerEdit(event.getPos(), event.getFace(), packageStack)) {
+            return;
+        }
+
+        // Match ExtendedAE's useOn flow: handle the package before an existing
+        // cable host can process the same click, then cancel the event after the
+        // part has been placed so it cannot be placed twice.
+        if (placePartPackage(player, event.getWorld(), event.getPos(), event.getFace(), hand, packageStack)
+                == EnumActionResult.SUCCESS) {
+            event.setCanceled(true);
+        }
     }
 
     @Override
