@@ -19,6 +19,10 @@ import net.minecraft.util.EnumFacing;
 import net.minecraft.util.EnumHand;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
+import net.minecraftforge.event.entity.player.PlayerInteractEvent;
+import net.minecraftforge.fml.common.eventhandler.Event;
+import net.minecraftforge.fml.common.eventhandler.EventPriority;
+import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 
@@ -141,6 +145,36 @@ public class ItemDevicePackage extends Item {
         }
         ItemStack target = getTargetStack(packageStack);
         return target.isEmpty() ? null : target.getDisplayName();
+    }
+
+    @SubscribeEvent(priority = EventPriority.HIGHEST, receiveCanceled = true)
+    public void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
+        EntityPlayer player = event.getEntityPlayer();
+        EnumHand hand = event.getHand();
+        ItemStack packageStack = player.getHeldItem(hand);
+        if (!isPartPackage(packageStack)
+                || !player.canPlayerEdit(event.getPos(), event.getFace(), packageStack)) {
+            return;
+        }
+
+        // A normal right-click gives the cable block the first chance to handle
+        // the interaction. Claim both uses before it reaches that block. The
+        // client only suppresses its local cable activation; the server below
+        // performs the authoritative placement and consumption.
+        event.setUseBlock(Event.Result.DENY);
+        event.setUseItem(Event.Result.DENY);
+        if (event.getWorld().isRemote) {
+            return;
+        }
+
+        if (placePartPackage(player, event.getWorld(), event.getPos(), event.getFace(), hand, packageStack)
+                == EnumActionResult.SUCCESS) {
+            event.setCanceled(true);
+        } else {
+            // No valid placement: preserve the normal cable/block interaction.
+            event.setUseBlock(Event.Result.DEFAULT);
+            event.setUseItem(Event.Result.DEFAULT);
+        }
     }
 
     @Override
