@@ -21,6 +21,7 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.fml.common.eventhandler.EventPriority;
+import net.minecraftforge.fml.common.eventhandler.Event;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
@@ -165,6 +166,8 @@ public class ItemDevicePackage extends Item {
         // part has been placed so it cannot be placed twice.
         if (placePartPackage(player, event.getWorld(), event.getPos(), event.getFace(), hand, packageStack)
                 == EnumActionResult.SUCCESS) {
+            event.setUseBlock(Event.Result.DENY);
+            event.setUseItem(Event.Result.DENY);
             event.setCanceled(true);
         }
     }
