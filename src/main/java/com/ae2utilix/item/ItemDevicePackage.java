@@ -183,14 +183,12 @@ public class ItemDevicePackage extends Item {
         }
 
         IPartHost host = AEApi.instance().partHelper().getPartHost(world, placement.pos());
-        if (host == null) {
-            return EnumActionResult.FAIL;
-        }
-
         placed.readFromNBT(getStoredData(packageStack));
-        host.markForSave();
-        host.markForUpdate();
-        host.notifyNeighbors();
+        if (host != null) {
+            host.markForSave();
+            host.markForUpdate();
+            host.notifyNeighbors();
+        }
         consumePackage(player, hand, packageStack);
         return EnumActionResult.SUCCESS;
     }
@@ -245,10 +243,11 @@ public class ItemDevicePackage extends Item {
 
     private static void consumePackage(EntityPlayer player, EnumHand hand, ItemStack packageStack) {
         if (!player.isCreative()) {
+            // PartPlacement may replace the hand stack while it creates the part.
+            // Always restore the package stack after a successful placement so the
+            // package itself, rather than the temporary part stack, is consumed.
             packageStack.shrink(1);
-            if (packageStack.isEmpty()) {
-                player.setHeldItem(hand, ItemStack.EMPTY);
-            }
+            player.setHeldItem(hand, packageStack.isEmpty() ? ItemStack.EMPTY : packageStack);
         }
     }
 
