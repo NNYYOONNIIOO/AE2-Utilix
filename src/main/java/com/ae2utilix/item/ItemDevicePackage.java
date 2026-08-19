@@ -153,11 +153,12 @@ public class ItemDevicePackage extends Item {
         if (!player.canPlayerEdit(pos, side, held)) {
             return EnumActionResult.FAIL;
         }
-        // The server must handle this before an AE2 cable bus gets a chance to
-        // process the click. The client stays PASS so the normal server click is
-        // not short-circuited by a client-only result.
+        // Claim the interaction on the client as well. Returning PASS here lets
+        // an existing AE2 cable host process the same click before the server's
+        // package placement path, which is how the placed part could survive
+        // while the package remained in the hand.
         if (world.isRemote) {
-            return EnumActionResult.PASS;
+            return EnumActionResult.SUCCESS;
         }
         return placePartPackage(player, world, pos, side, hand, held);
     }
