@@ -26,7 +26,8 @@ public abstract class MixinContainerFluidPatternTerminalAE2FC {
     private void ae2utilix$checkHasFluidPattern(CallbackInfoReturnable<Boolean> cir) {
         TilePatternTerminal terminal = AE2FCRUCompat.getUtilixPatternTerminal(this);
         if (terminal != null) {
-            cir.setReturnValue(AE2FCRUCompat.hasFluidOrGasPatternContent(terminal));
+            cir.setReturnValue(!terminal.isCraftingRecipe()
+                    && AE2FCRUCompat.hasFluidOrGasPatternContent(terminal));
         }
     }
 
