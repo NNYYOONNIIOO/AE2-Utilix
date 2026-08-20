@@ -3,6 +3,8 @@ package com.ae2utilix.gui;
 import appeng.api.storage.ITerminalHost;
 import appeng.client.gui.implementations.GuiPatternTerm;
 import appeng.client.gui.implementations.GuiMEMonitorable;
+import appeng.container.AEBaseContainer;
+import appeng.container.ContainerOpenContext;
 import appeng.container.implementations.ContainerPatternTerm;
 import appeng.container.implementations.ContainerMEMonitorable;
 import com.ae2utilix.integration.AE2FCRUCompat;
@@ -83,6 +85,13 @@ public class FullTerminalGuiHandler implements IGuiHandler {
         }
     }
 
+    private static Object withOpenContext(Object container, TileEntity tile) {
+        if (container instanceof AEBaseContainer) {
+            ((AEBaseContainer) container).setOpenContext(new ContainerOpenContext(tile));
+        }
+        return container;
+    }
+
     @Nullable
     @Override
     public Object getServerGuiElement(int ID, EntityPlayer player, World world, int x, int y, int z) {
@@ -103,12 +112,12 @@ public class FullTerminalGuiHandler implements IGuiHandler {
             case GUI_PATTERN_TERMINAL:
                 Object fluidPatternContainer = createFluidPatternContainer(player.inventory, host);
                 if (fluidPatternContainer != null) {
-                    return fluidPatternContainer;
+                    return withOpenContext(fluidPatternContainer, te);
                 }
                 // Keep the fallback on the original AE2 terminal. The
                 // expanded custom container has an item-only JEI transfer
                 // path and is the source of the missing-fluid behavior.
-                return new ContainerPatternTerm(player.inventory, host);
+                return withOpenContext(new ContainerPatternTerm(player.inventory, host), te);
             case GUI_INTERFACE_TERMINAL:
                 if (te instanceof TileInterfaceTerminal) {
                     return new ContainerFullInterface(player.inventory, (TileInterfaceTerminal) te);
