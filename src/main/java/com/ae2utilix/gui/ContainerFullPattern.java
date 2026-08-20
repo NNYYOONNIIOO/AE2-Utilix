@@ -799,40 +799,25 @@ public class ContainerFullPattern extends ContainerMEMonitorable
      * Only relevant in processing mode.
      */
     private boolean checkHasFluidPattern() {
-        if (!AE2FCRUCompat.isLoaded()) return false;
-        if (this.craftingMode) {
+        if (!AE2FCRUCompat.isLoaded() || this.craftingMode) {
             return false;
         }
-        boolean hasFluid = false;
-        boolean search = false;
+
         for (final Slot craftingSlot : this.craftingSlots) {
             final ItemStack crafting = craftingSlot.getStack();
-            if (crafting.isEmpty()) {
-                continue;
-            }
-            search = true;
-            if (AE2FCRUCompat.isFluidFakeItem(crafting)) {
-                hasFluid = true;
-                break;
+            if (!crafting.isEmpty() && AE2FCRUCompat.isFluidFakeItem(crafting)) {
+                return true;
             }
         }
-        if (!search) {
-            return false;
-        }
+
         for (final Slot outputSlot : this.outputSlots) {
             final ItemStack out = outputSlot.getStack();
-            if (out.isEmpty()) {
-                continue;
-            }
-            search = false;
-            if (hasFluid) {
-                break;
-            } else if (AE2FCRUCompat.isFluidFakeItem(out)) {
-                hasFluid = true;
-                break;
+            if (!out.isEmpty() && AE2FCRUCompat.isFluidFakeItem(out)) {
+                return true;
             }
         }
-        return hasFluid && !search;
+
+        return false;
     }
 
     /**

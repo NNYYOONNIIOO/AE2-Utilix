@@ -6,7 +6,11 @@ import java.io.File;
 
 public class AE2UtilixConfig {
 
-    public static boolean renderFloatingItem = true;
+public static boolean renderFloatingItem = true;
+
+    public static boolean renderFloatingItemModel = true;
+
+    public static float floatingParticleDensity = 0.4F;
     public static boolean enableCpuAccessMode = true;
     public static String decomposerHudPosition = "bottom_left";
 
@@ -36,6 +40,22 @@ public class AE2UtilixConfig {
             config.load();
             renderFloatingItem = config.getBoolean("renderFloatingItem", "client", true,
                     "Render floating item and particles in Crystal Growth Chamber");
+
+            renderFloatingItemModel = config.getBoolean(
+                    "renderFloatingItemModel",
+                    "client",
+                    true,
+                    "Render the floating item model in the Crystal Growth Chamber"
+            );
+
+            floatingParticleDensity = config.getFloat(
+                    "floatingParticleDensity",
+                    "client",
+                    0.4F,
+                    0.0F,
+                    1.0F,
+                    "Crystal Growth Chamber particle effect density"
+            );
             enableCpuAccessMode = config.getBoolean("enableCpuAccessMode", "common", true,
                     "Enable CPU access mode buttons in Crafting Status GUI (ALL/Player Only/Automation Only)");
             decomposerHudPosition = config.getString("decomposerHudPosition", "client", "bottom_left",

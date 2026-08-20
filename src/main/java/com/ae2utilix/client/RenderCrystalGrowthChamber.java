@@ -22,25 +22,27 @@ public class RenderCrystalGrowthChamber extends TileEntitySpecialRenderer<TileCr
         boolean hasProgress = te.getProgress() > 0 && te.getMaxProgress() > 0;
         if (!hasProgress && te.getClientDisplayStack().isEmpty()) return;
 
-        float progress = hasProgress ? (float) te.getProgress() / te.getMaxProgress() : 0.0F;
+        if (AE2UtilixConfig.renderFloatingItemModel) {
+            float progress = hasProgress ? (float) te.getProgress() / te.getMaxProgress() : 0.0F;
 
-        GlStateManager.pushMatrix();
-        GlStateManager.translate(x + 0.5, y + 0.5 - 0.0125, z + 0.5);
+            GlStateManager.pushMatrix();
+            GlStateManager.translate(x + 0.5, y + 0.5 - 0.0125, z + 0.5);
 
-        float scale = 0.35F + progress * 0.2F;
-        GlStateManager.scale(scale, scale, scale);
+            float scale = 0.35F + progress * 0.2F;
+            GlStateManager.scale(scale, scale, scale);
 
-        float rotation = (te.getWorld().getTotalWorldTime() + partialTicks) * 2.0F;
-        GlStateManager.rotate(rotation, 0.0F, 1.0F, 0.0F);
-        GlStateManager.rotate(25.0F, 1.0F, 0.0F, 0.0F);
+            float rotation = (te.getWorld().getTotalWorldTime() + partialTicks) * 2.0F;
+            GlStateManager.rotate(rotation, 0.0F, 1.0F, 0.0F);
+            GlStateManager.rotate(25.0F, 1.0F, 0.0F, 0.0F);
 
-        if (!(displayStack.getItem() instanceof ItemBlock)) {
-            GlStateManager.translate(0.0F, 0.15F, 0.0F);
+            if (!(displayStack.getItem() instanceof ItemBlock)) {
+                GlStateManager.translate(0.0F, 0.15F, 0.0F);
+            }
+
+            Minecraft.getMinecraft().getRenderItem().renderItem(displayStack, ItemCameraTransforms.TransformType.GROUND);
+
+            GlStateManager.popMatrix();
         }
-
-        Minecraft.getMinecraft().getRenderItem().renderItem(displayStack, ItemCameraTransforms.TransformType.GROUND);
-
-        GlStateManager.popMatrix();
 
         if (!Minecraft.getMinecraft().isGamePaused()) {
             spawnEffects(te, partialTicks);
@@ -67,7 +69,8 @@ public class RenderCrystalGrowthChamber extends TileEntitySpecialRenderer<TileCr
         double cy = pos.getY() + 0.5;
         double cz = pos.getZ() + 0.5;
 
-        if (te.getWorld().rand.nextFloat() > 0.4F) return;
+        float density = Math.max(0.0F, Math.min(1.0F, AE2UtilixConfig.floatingParticleDensity));
+        if (density <= 0.0F || te.getWorld().rand.nextFloat() >= density) return;
 
         double ox = (te.getWorld().rand.nextDouble() - 0.5) * 0.6;
         double oy = (te.getWorld().rand.nextDouble() - 0.5) * 0.6;
@@ -77,7 +80,7 @@ public class RenderCrystalGrowthChamber extends TileEntitySpecialRenderer<TileCr
                 cx + ox, cy + oy, cz + oz,
                 0.0, 0.1, 0.2);
 
-        if (te.getWorld().rand.nextFloat() < 0.3F) {
+        if (te.getWorld().rand.nextFloat() < 0.3F * density) {
             te.getWorld().spawnParticle(EnumParticleTypes.END_ROD,
                     cx + ox * 1.5, cy + oy * 1.5, cz + oz * 1.5,
                     0.0, 0.05, 0.0);
