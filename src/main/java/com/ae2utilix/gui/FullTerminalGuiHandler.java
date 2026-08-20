@@ -142,6 +142,13 @@ public class FullTerminalGuiHandler implements IGuiHandler {
                 if (fluidPatternContainer != null) {
                     return withOpenContext(fluidPatternContainer, te);
                 }
+                // Keep the already-tested block terminal as a safe fallback
+                // when an installed AE2FC build cannot construct its native
+                // container. The client uses the matching GUI branch below.
+                if (te instanceof TilePatternTerminal) {
+                    return withOpenContext(new ContainerFullPattern(player.inventory,
+                            (TilePatternTerminal) te), te);
+                }
                 // Keep the fallback on the original AE2 terminal. The
                 // expanded custom container has an item-only JEI transfer
                 // path and is the source of the missing-fluid behavior.
@@ -183,6 +190,9 @@ public class FullTerminalGuiHandler implements IGuiHandler {
                 Object fluidPatternGui = createFluidPatternGui(player.inventory, host);
                 if (fluidPatternGui != null) {
                     return fluidPatternGui;
+                }
+                if (te instanceof TilePatternTerminal) {
+                    return new GuiFullPattern(player.inventory, (TilePatternTerminal) te);
                 }
                 return new GuiPatternTerm(player.inventory, host);
             case GUI_INTERFACE_TERMINAL:
