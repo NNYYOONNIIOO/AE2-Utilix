@@ -49,36 +49,6 @@ public class ItemDevicePackage extends Item {
     public static final String KIND_PART = "part";
 
 
-    private static void debugLog(String format, Object... args) {
-        if (AE2Utilix.LOGGER != null) {
-            AE2Utilix.LOGGER.info("[DevicePackageDebug] " + String.format(format, args));
-        }
-    }
-
-    private static void debugError(String message, Throwable error) {
-        if (AE2Utilix.LOGGER != null) {
-            AE2Utilix.LOGGER.error("[DevicePackageDebug] " + message, error);
-        }
-    }
-
-    private static String describeStack(ItemStack stack) {
-        if (stack == null || stack.isEmpty()) {
-            return "EMPTY";
-        }
-        String itemName = stack.getItem() == null ? "null" : String.valueOf(stack.getItem().getRegistryName());
-        NBTTagCompound tag = stack.getTagCompound();
-        String kind = tag == null ? "-" : tag.getString(KIND);
-        String target = "-";
-        int targetDamage = -1;
-        if (tag != null && tag.hasKey(STACK, 10)) {
-            NBTTagCompound stored = tag.getCompoundTag(STACK);
-            target = stored.getString("id");
-            targetDamage = stored.getShort("Damage");
-        }
-        return String.format("item=%s,count=%d,damage=%d,kind=%s,target=%s,targetDamage=%d",
-                itemName, stack.getCount(), stack.getItemDamage(), kind, target, targetDamage);
-    }
-
     public ItemDevicePackage() {
         this.setUnlocalizedName(AE2Utilix.MODID + ".device_package");
         this.setRegistryName(AE2Utilix.MODID, "device_package");
@@ -198,9 +168,6 @@ public class ItemDevicePackage extends Item {
         if (packageStack.isEmpty() || packageStack.getItem() != AE2Utilix.DEVICE_PACKAGE) {
             return;
         }
-        debugLog("RightClickBlock remote=%s player=%s hand=%s pos=%s face=%s canceled=%s package=%s",
-                event.getWorld().isRemote, player.getName(), hand, event.getPos(), event.getFace(),
-                event.isCanceled(), describeStack(packageStack));
 
         if (!isPartPackage(packageStack)
                 || !player.canPlayerEdit(event.getPos(), event.getFace(), packageStack)) {
@@ -213,8 +180,6 @@ public class ItemDevicePackage extends Item {
         // performs the authoritative placement and consumption.
         event.setUseBlock(Event.Result.DENY);
         event.setUseItem(Event.Result.DENY);
-        debugLog("RightClickBlock intercepted remote=%s packageBefore=%s",
-                event.getWorld().isRemote, describeStack(player.getHeldItem(hand)));
         if (event.getWorld().isRemote) {
             return;
         }
@@ -224,8 +189,6 @@ public class ItemDevicePackage extends Item {
         event.setCanceled(true);
         EnumActionResult result = placePartPackage(player, event.getWorld(), event.getPos(), event.getFace(), hand,
                 packageStack);
-        debugLog("RightClickBlock placementResult=%s canceled=%s packageAfter=%s",
-                result, event.isCanceled(), describeStack(player.getHeldItem(hand)));
         if (result != EnumActionResult.SUCCESS) {
             event.setCanceled(false);
             // No valid placement: preserve the normal cable/block interaction.
@@ -239,8 +202,6 @@ public class ItemDevicePackage extends Item {
             float hitX, float hitY, float hitZ, EnumHand hand) {
         ItemStack held = player.getHeldItem(hand);
         if (!held.isEmpty() && held.getItem() == AE2Utilix.DEVICE_PACKAGE) {
-            debugLog("onItemUseFirst remote=%s player=%s hand=%s pos=%s face=%s package=%s",
-                    world.isRemote, player.getName(), hand, pos, side, describeStack(held));
         }
         if (!isPartPackage(held)) {
             return EnumActionResult.PASS;
@@ -255,8 +216,6 @@ public class ItemDevicePackage extends Item {
             return EnumActionResult.SUCCESS;
         }
         EnumActionResult result = placePartPackage(player, world, pos, side, hand, held);
-        debugLog("onItemUseFirst serverResult=%s packageAfter=%s",
-                result, describeStack(player.getHeldItem(hand)));
         return result;
     }
 
@@ -265,8 +224,6 @@ public class ItemDevicePackage extends Item {
             EnumFacing side, float hitX, float hitY, float hitZ) {
         ItemStack held = player.getHeldItem(hand);
         if (!held.isEmpty() && held.getItem() == AE2Utilix.DEVICE_PACKAGE) {
-            debugLog("onItemUse remote=%s player=%s hand=%s pos=%s face=%s package=%s",
-                    world.isRemote, player.getName(), hand, pos, side, describeStack(held));
         }
         if (!isValidPackage(held)) {
             return EnumActionResult.FAIL;
@@ -287,23 +244,14 @@ public class ItemDevicePackage extends Item {
 
     private EnumActionResult placePartPackage(EntityPlayer player, World world, BlockPos pos, EnumFacing side,
             EnumHand hand, ItemStack packageStack) {
-        debugLog("placePartPackage START remote=%s player=%s hand=%s pos=%s side=%s package=%s",
-                world.isRemote, player.getName(), hand, pos, side, describeStack(packageStack));
         ItemStack partStack = getTargetStack(packageStack);
-        debugLog("placePartPackage target=%s targetClass=%s",
-                describeStack(partStack), partStack.isEmpty() || partStack.getItem() == null
-                        ? "null" : partStack.getItem().getClass().getName());
         if (!(partStack.getItem() instanceof appeng.api.parts.IPartItem)) {
             return EnumActionResult.FAIL;
         }
 
         NBTTagCompound placementData = getPlacementData(packageStack);
-        debugLog("placePartPackage dataKeys=%s hasLegacyPart=%s",
-                placementData.getKeySet(), placementData.hasKey("part", 10));
 
         PartPlacement.Placement placement = PartPlacement.getPartPlacement(player, world, partStack, pos, side);
-        debugLog("placePartPackage calculatedPlacement=%s",
-                placement == null ? "null" : placement.pos() + "/" + placement.side());
         if (placement == null) {
             return EnumActionResult.FAIL;
         }
@@ -313,12 +261,8 @@ public class ItemDevicePackage extends Item {
         // Forge restores the original hand reference, it already has the
         // decremented count and cannot duplicate the package.
         int originalCount = packageStack.getCount();
-        debugLog("placePartPackage beforeConsume package=%s hand=%s",
-                describeStack(packageStack), describeStack(player.getHeldItem(hand)));
         packageStack.shrink(1);
         player.setHeldItem(hand, packageStack.isEmpty() ? ItemStack.EMPTY : packageStack);
-        debugLog("placePartPackage preConsumed originalCount=%d package=%s hand=%s",
-                originalCount, describeStack(packageStack), describeStack(player.getHeldItem(hand)));
         boolean placedSuccessfully = false;
         IPart placed = null;
         IPartHost host = null;
@@ -327,15 +271,11 @@ public class ItemDevicePackage extends Item {
             // AE2 cannot apply normal IPartItem consumption to our package slot.
             placed = PartPlacement.placePart(player, world, partStack,
                     placement.pos(), placement.side(), null);
-            debugLog("placePartPackage placePartReturned part=%s",
-                    placed == null ? "null" : placed.getClass().getName());
             if (placed == null) {
                 return EnumActionResult.FAIL;
             }
 
             host = AEApi.instance().partHelper().getPartHost(world, placement.pos());
-            debugLog("placePartPackage host=%s",
-                    host == null ? "null" : host.getClass().getName());
             restorePartData(placed, placementData);
             if (host != null) {
                 host.markForSave();
@@ -344,8 +284,6 @@ public class ItemDevicePackage extends Item {
             placedSuccessfully = true;
             return EnumActionResult.SUCCESS;
         } catch (RuntimeException ex) {
-            debugError("placePartPackage exception package=" + describeStack(packageStack)
-                    + " hand=" + describeStack(player.getHeldItem(hand)), ex);
             if (host != null && placed != null) {
                 AEPartLocation location = AEPartLocation.fromFacing(placement.side());
                 if (host.getPart(location) == placed) {
@@ -361,8 +299,6 @@ public class ItemDevicePackage extends Item {
             }
             player.setHeldItem(hand, packageStack.isEmpty() ? ItemStack.EMPTY : packageStack);
             player.inventory.markDirty();
-            debugLog("placePartPackage END success=%s package=%s hand=%s",
-                    placedSuccessfully, describeStack(packageStack), describeStack(player.getHeldItem(hand)));
         }
     }
 
@@ -380,8 +316,6 @@ public class ItemDevicePackage extends Item {
                 new java.util.IdentityHashMap<Object, Boolean>());
         final java.util.ArrayDeque<Object> pending = new java.util.ArrayDeque<>();
         pending.add(part);
-        debugLog("restorePartData START part=%s dataKeys=%s",
-                part.getClass().getName(), data.getKeySet());
 
         try {
             int scanned = 0;
@@ -411,8 +345,6 @@ public class ItemDevicePackage extends Item {
                                 if (value != null) {
                                     field.set(current, null);
                                     detached.add(new GridReference(current, field, value));
-                                    debugLog("restorePartData detachedGrid owner=%s",
-                                            current.getClass().getName());
                                 }
                                 continue;
                             }
@@ -428,10 +360,6 @@ public class ItemDevicePackage extends Item {
             }
 
             part.readFromNBT(data);
-                        debugLog("restorePartData READ_OK part=%s", part.getClass().getName());
-            debugLog("restorePartData END part=%s detachedGridCount=%d",
-                    part.getClass().getName(), detached.size());
-debugLog("restorePartData reading detachedGridCount=%d", detached.size());
         } finally {
             for (int index = detached.size() - 1; index >= 0; index--) {
                 GridReference reference = detached.get(index);
