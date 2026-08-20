@@ -51,6 +51,9 @@ public class AE2FCRUCompat {
                 Field field = type.getDeclaredField("part");
                 field.setAccessible(true);
                 Object value = field.get(container);
+                if (value instanceof com.ae2utilix.gui.NativePatternTerminalHostAdapter) {
+                    return ((com.ae2utilix.gui.NativePatternTerminalHostAdapter) value).getTerminal();
+                }
                 return value instanceof TilePatternTerminal ? (TilePatternTerminal) value : null;
             } catch (NoSuchFieldException e) {
                 type = type.getSuperclass();

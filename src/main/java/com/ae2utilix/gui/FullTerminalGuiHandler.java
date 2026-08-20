@@ -10,6 +10,7 @@ import appeng.container.implementations.ContainerPatternTerm;
 import appeng.container.implementations.ContainerMEMonitorable;
 import com.ae2utilix.integration.AE2FCRUCompat;
 import com.ae2utilix.block.terminal.TileInterfaceTerminal;
+import com.ae2utilix.block.terminal.TilePatternTerminal;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.InventoryPlayer;
 import net.minecraft.tileentity.TileEntity;
@@ -52,6 +53,22 @@ public class FullTerminalGuiHandler implements IGuiHandler {
         throw new NoSuchMethodException("No compatible native terminal constructor in " + type.getName());
     }
 
+    private static ITerminalHost adaptPatternHost(ITerminalHost host, boolean fluid) {
+        if (!(host instanceof TilePatternTerminal)) {
+            return host;
+        }
+        TilePatternTerminal terminal = (TilePatternTerminal) host;
+        if (fluid && AE2FCRUCompat.isLoaded()) {
+            try {
+                Class<?> type = Class.forName("com.ae2utilix.gui.AE2FCNativePatternTerminalHostAdapter");
+                return (ITerminalHost) type.getConstructor(TilePatternTerminal.class).newInstance(terminal);
+            } catch (Throwable e) {
+                com.ae2utilix.AE2Utilix.LOGGER.warn("Unable to create AE2FC pattern host adapter", e);
+            }
+        }
+        return new NativePatternTerminalHostAdapter(terminal);
+    }
+
     /**
      * AE2FC's fluid terminal is an extension of AE2's original pattern
      * terminal.  Use it for this block when AE2FC is installed, so the block
@@ -65,7 +82,7 @@ public class FullTerminalGuiHandler implements IGuiHandler {
         }
         try {
             Class<?> type = Class.forName("com.glodblock.github.client.container.ContainerFluidPatternTerminal");
-            return constructNativeTerminal(type, inventory, host);
+            return constructNativeTerminal(type, inventory, adaptPatternHost(host, true));
         } catch (Throwable e) {
             com.ae2utilix.AE2Utilix.LOGGER.warn("Unable to create AE2FC fluid pattern container; using AE2 pattern container", e);
             return null;
@@ -79,7 +96,7 @@ public class FullTerminalGuiHandler implements IGuiHandler {
         }
         try {
             Class<?> type = Class.forName("com.glodblock.github.client.client.gui.GuiFluidPatternTerminal");
-            return constructNativeTerminal(type, inventory, host);
+            return constructNativeTerminal(type, inventory, adaptPatternHost(host, true));
         } catch (Throwable e) {
             com.ae2utilix.AE2Utilix.LOGGER.warn("Unable to create AE2FC fluid pattern GUI; using AE2 pattern GUI", e);
             return null;
@@ -128,7 +145,8 @@ public class FullTerminalGuiHandler implements IGuiHandler {
                 // Keep the fallback on the original AE2 terminal. The
                 // expanded custom container has an item-only JEI transfer
                 // path and is the source of the missing-fluid behavior.
-                return withOpenContext(new ContainerPatternTerm(player.inventory, host), te);
+                return withOpenContext(new ContainerPatternTerm(player.inventory,
+                        adaptPatternHost(host, false)), te);
             case GUI_INTERFACE_TERMINAL:
                 if (te instanceof TileInterfaceTerminal) {
                     return new ContainerFullInterface(player.inventory, (TileInterfaceTerminal) te);
