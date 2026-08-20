@@ -56,6 +56,12 @@ public class NativePatternTerminalHostAdapter extends AbstractPartEncoder {
     }
 
     @Override
+    public ItemStack getItemStack() {
+        TilePatternTerminal terminal = this.terminal;
+        return terminal != null ? ItemStack.EMPTY : ItemStack.EMPTY;
+    }
+
+    @Override
     public AENetworkProxy getProxy() {
         return delegate().getProxy();
     }
