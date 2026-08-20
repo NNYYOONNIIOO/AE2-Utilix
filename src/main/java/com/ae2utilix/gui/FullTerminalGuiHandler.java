@@ -16,6 +16,8 @@ import net.minecraftforge.fml.common.network.IGuiHandler;
 
 import javax.annotation.Nullable;
 
+import java.lang.reflect.Constructor;
+
 public class FullTerminalGuiHandler implements IGuiHandler {
 
     public static final int GUI_STORAGE_TERMINAL = 10;
@@ -25,6 +27,27 @@ public class FullTerminalGuiHandler implements IGuiHandler {
     public static final int GUI_COMMON_INTERFACE = 14;
     public static final int GUI_COMMON_IMPORT_BUS = 20;
     public static final int GUI_COMMON_EXPORT_BUS = 30;
+
+    /**
+     * Construct the native AE2/AE2FC terminal using the constructor's actual
+     * runtime parameter types. AE2FC changes the declared host interface
+     * between compatible 1.12 builds, so requiring exactly ITerminalHost can
+     * incorrectly fall back to the item-only AE2 terminal.
+     */
+    private static Object constructNativeTerminal(Class<?> type, InventoryPlayer inventory,
+                                                   ITerminalHost host) throws Exception {
+        for (Constructor<?> constructor : type.getDeclaredConstructors()) {
+            Class<?>[] parameterTypes = constructor.getParameterTypes();
+            if (parameterTypes.length != 2
+                    || !parameterTypes[0].isAssignableFrom(inventory.getClass())
+                    || !parameterTypes[1].isAssignableFrom(host.getClass())) {
+                continue;
+            }
+            constructor.setAccessible(true);
+            return constructor.newInstance(inventory, host);
+        }
+        throw new NoSuchMethodException("No compatible native terminal constructor in " + type.getName());
+    }
 
     /**
      * AE2FC's fluid terminal is an extension of AE2's original pattern
@@ -39,7 +62,7 @@ public class FullTerminalGuiHandler implements IGuiHandler {
         }
         try {
             Class<?> type = Class.forName("com.glodblock.github.client.container.ContainerFluidPatternTerminal");
-            return type.getConstructor(InventoryPlayer.class, ITerminalHost.class).newInstance(inventory, host);
+            return constructNativeTerminal(type, inventory, host);
         } catch (Throwable e) {
             com.ae2utilix.AE2Utilix.LOGGER.warn("Unable to create AE2FC fluid pattern container; using AE2 pattern container", e);
             return null;
@@ -53,7 +76,7 @@ public class FullTerminalGuiHandler implements IGuiHandler {
         }
         try {
             Class<?> type = Class.forName("com.glodblock.github.client.client.gui.GuiFluidPatternTerminal");
-            return type.getConstructor(InventoryPlayer.class, ITerminalHost.class).newInstance(inventory, host);
+            return constructNativeTerminal(type, inventory, host);
         } catch (Throwable e) {
             com.ae2utilix.AE2Utilix.LOGGER.warn("Unable to create AE2FC fluid pattern GUI; using AE2 pattern GUI", e);
             return null;
