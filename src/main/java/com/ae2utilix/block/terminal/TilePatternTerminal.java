@@ -108,7 +108,25 @@ public class TilePatternTerminal extends TileStorageTerminal {
         // Fuzzy-match input candidates against ME network storage
         ItemStack[] fuzzyFind = new ItemStack[AE2FCRUCompat.findMax(inputs.keySet()) + 1];
         for (final int index : inputs.keySet()) {
-            AE2FCRUCompat.fuzzyTransferItems(index, inputs.get(index), fuzzyFind, storageList);
+            final ItemStack[] candidates = inputs.get(index);
+            AE2FCRUCompat.fuzzyTransferItems(index, candidates, fuzzyFind, storageList);
+
+            // AE2FC deliberately sends fluids and gases as fake item stacks.
+            // They do not occur in the ordinary AE item storage list, so a
+            // storage-based fuzzy transfer can leave this slot empty even
+            // though JEI supplied a valid resource. Keep the first candidate
+            // as a fallback; this also makes item recipes import correctly
+            // when their ingredient is not currently stored in the network.
+            if (index >= 0 && index < fuzzyFind.length
+                    && (fuzzyFind[index] == null || fuzzyFind[index].isEmpty())
+                    && candidates != null) {
+                for (final ItemStack candidate : candidates) {
+                    if (candidate != null && !candidate.isEmpty()) {
+                        fuzzyFind[index] = candidate.copy();
+                        break;
+                    }
+                }
+            }
         }
 
         // Compress (merge identical items) if combine is true and in processing mode
