@@ -7,6 +7,7 @@ import appeng.core.sync.packets.PacketValueConfig;
 import com.ae2utilix.AE2Utilix;
 import com.mojang.authlib.GameProfile;
 import com.ae2utilix.block.terminal.TilePatternTerminal;
+import com.ae2utilix.gui.ContainerFullPattern;
 import net.minecraft.client.gui.GuiButton;
 import mezz.jei.api.gui.IRecipeLayout;
 import mezz.jei.api.recipe.VanillaRecipeCategoryUid;
@@ -297,8 +298,17 @@ public class AE2FCRUCompat {
      * AE2FC's more specific handler and silently drops fluid ingredients.
      */
     public static boolean isUtilixFluidPatternContainer(@Nullable Object container) {
-        return container != null
-                && "com.glodblock.github.client.container.ContainerFluidPatternTerminal".equals(container.getClass().getName())
+        if (!isLoaded() || container == null) {
+            return false;
+        }
+        // The block normally uses the project's expanded nine-page container
+        // when AE2FC's native container cannot be constructed. It still has
+        // the same fluid-capable fields and TilePatternTerminal host, so it
+        // must use the AE2FC JEI transfer path as well.
+        if (container instanceof ContainerFullPattern) {
+            return true;
+        }
+        return "com.glodblock.github.client.container.ContainerFluidPatternTerminal".equals(container.getClass().getName())
                 && getUtilixPatternTerminal(container) != null;
     }
 
