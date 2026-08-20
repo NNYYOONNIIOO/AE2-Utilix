@@ -61,16 +61,6 @@ public class JEIUtilixPlugin implements IModPlugin {
                     CrystalGrowthRecipeCategory.UID);
         }
 
-        // Register AE2FCRU fluid recipe transfer handler for our pattern terminal
-        if (com.ae2utilix.AE2UtilixConfig.registerFullTerminals) {
-            try {
-                registry.getRecipeTransferRegistry().addRecipeTransferHandler(
-                        new FullPatternRecipeTransferHandler(),
-                        mezz.jei.config.Constants.UNIVERSAL_RECIPE_TRANSFER_UID);
-            } catch (NoClassDefFoundError ignored) {
-                // AE2FCRU not loaded
-            }
-        }
     }
 
     @Override

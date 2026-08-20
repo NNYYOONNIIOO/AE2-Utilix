@@ -31,9 +31,7 @@
     "MixinGuiCraftConfirm",
     "MixinGuiMEMonitorableAccessor",
     "MixinGuiCraftingCPU",
-    "MixinApiClientHelper",
-    "MixinJEIPlugin",
-    "MixinRecipeTransferHandler"
+    "MixinApiClientHelper"
   ],
   "injectors": {
     "defaultRequire": 0

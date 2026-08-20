@@ -39,13 +39,8 @@ public class FullTerminalGuiHandler implements IGuiHandler {
         }
         try {
             Class<?> type = Class.forName("com.glodblock.github.client.container.ContainerFluidPatternTerminal");
-            Object container = type.getConstructor(InventoryPlayer.class, ITerminalHost.class).newInstance(inventory, host);
-            if (!(container instanceof appeng.container.ContainerNull)
-                    && !implementsInterface(container, "com.glodblock.github.interfaces.FCFluidPatternContainer")) {
-                throw new IllegalStateException("AE2FC returned a container without FCFluidPatternContainer");
-            }
-            return container;
-        } catch (ReflectiveOperationException | LinkageError e) {
+            return type.getConstructor(InventoryPlayer.class, ITerminalHost.class).newInstance(inventory, host);
+        } catch (Throwable e) {
             com.ae2utilix.AE2Utilix.LOGGER.warn("Unable to create AE2FC fluid pattern container; using AE2 pattern container", e);
             return null;
         }
@@ -59,14 +54,10 @@ public class FullTerminalGuiHandler implements IGuiHandler {
         try {
             Class<?> type = Class.forName("com.glodblock.github.client.client.gui.GuiFluidPatternTerminal");
             return type.getConstructor(InventoryPlayer.class, ITerminalHost.class).newInstance(inventory, host);
-        } catch (ReflectiveOperationException | LinkageError e) {
+        } catch (Throwable e) {
             com.ae2utilix.AE2Utilix.LOGGER.warn("Unable to create AE2FC fluid pattern GUI; using AE2 pattern GUI", e);
             return null;
         }
-    }
-
-    private static boolean implementsInterface(Object value, String interfaceName) throws ClassNotFoundException {
-        return Class.forName(interfaceName).isInstance(value);
     }
 
     @Nullable
@@ -91,13 +82,10 @@ public class FullTerminalGuiHandler implements IGuiHandler {
                 if (fluidPatternContainer != null) {
                     return fluidPatternContainer;
                 }
-                // Never fall back to the ordinary AE2 container while AE2FC
-                // is present: that path can encode a fluid recipe as a
-                // normal encoded_pattern. The project's container retains
-                // the AE2FC encoder as a safe fallback.
-                return AE2FCRUCompat.isLoaded()
-                        ? new ContainerFullPattern(player.inventory, host)
-                        : new ContainerPatternTerm(player.inventory, host);
+                // Keep the fallback on the original AE2 terminal. The
+                // expanded custom container has an item-only JEI transfer
+                // path and is the source of the missing-fluid behavior.
+                return new ContainerPatternTerm(player.inventory, host);
             case GUI_INTERFACE_TERMINAL:
                 if (te instanceof TileInterfaceTerminal) {
                     return new ContainerFullInterface(player.inventory, (TileInterfaceTerminal) te);
@@ -135,11 +123,7 @@ public class FullTerminalGuiHandler implements IGuiHandler {
                 if (fluidPatternGui != null) {
                     return fluidPatternGui;
                 }
-                // Keep the client/server container pair consistent with the
-                // server fallback above and preserve AE2FC fluid encoding.
-                return AE2FCRUCompat.isLoaded()
-                        ? new GuiFullPattern(player.inventory, host)
-                        : new GuiPatternTerm(player.inventory, host);
+                return new GuiPatternTerm(player.inventory, host);
             case GUI_INTERFACE_TERMINAL:
                 if (te instanceof TileInterfaceTerminal) {
                     return new GuiFullInterface(player.inventory, (TileInterfaceTerminal) te);
