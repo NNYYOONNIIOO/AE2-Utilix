@@ -2,6 +2,7 @@ package com.ae2utilix.mixin;
 
 import com.ae2utilix.AE2Utilix;
 import com.ae2utilix.gui.ContainerFullPattern;
+import com.ae2utilix.integration.AE2FCRUCompat;
 import mezz.jei.api.gui.IRecipeLayout;
 import mezz.jei.api.recipe.VanillaRecipeCategoryUid;
 import mezz.jei.api.recipe.transfer.IRecipeTransferError;
@@ -19,10 +20,19 @@ import java.io.IOException;
 @Mixin(targets = "appeng.integration.modules.jei.RecipeTransferHandler", remap = false)
 public abstract class MixinRecipeTransferHandler<T extends Container> {
 
-    @Inject(method = "transferRecipe", at = @At(value = "INVOKE", target = "Ljava/util/Map;entrySet()Ljava/util/Set;"), cancellable = false, remap = false)
+    @Inject(method = "transferRecipe", at = @At(value = "INVOKE", target = "Ljava/util/Map;entrySet()Ljava/util/Set;"), cancellable = true, remap = false)
     private void ae2utilix$handleFullPatternMode(@Nonnull T container, IRecipeLayout recipeLayout,
-                                                  @Nonnull EntityPlayer player, boolean maxTransfer,
-                                                  boolean doTransfer, CallbackInfoReturnable<IRecipeTransferError> cir) {
+                                                   @Nonnull EntityPlayer player, boolean maxTransfer,
+                                                   boolean doTransfer, CallbackInfoReturnable<IRecipeTransferError> cir) {
+        if (AE2FCRUCompat.isUtilixFluidPatternContainer(container)) {
+            if (doTransfer) {
+                AE2FCRUCompat.transferNativeFluidPatternRecipe(container, recipeLayout);
+            }
+            // Prevent AE2's item-only handler from running after the AE2FC
+            // transfer. Its fallback is exactly what loses FluidStack inputs.
+            cir.setReturnValue(null);
+            return;
+        }
         if (container instanceof ContainerFullPattern) {
             ContainerFullPattern cpt = (ContainerFullPattern) container;
             String recipeType = recipeLayout.getRecipeCategory().getUid();

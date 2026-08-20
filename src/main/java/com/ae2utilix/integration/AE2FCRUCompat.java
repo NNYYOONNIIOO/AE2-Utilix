@@ -2,9 +2,14 @@ package com.ae2utilix.integration;
 
 import appeng.api.storage.data.IAEItemStack;
 import appeng.api.storage.data.IItemList;
+import appeng.core.sync.network.NetworkHandler;
+import appeng.core.sync.packets.PacketValueConfig;
+import com.ae2utilix.AE2Utilix;
 import com.mojang.authlib.GameProfile;
 import com.ae2utilix.block.terminal.TilePatternTerminal;
 import net.minecraft.client.gui.GuiButton;
+import mezz.jei.api.gui.IRecipeLayout;
+import mezz.jei.api.recipe.VanillaRecipeCategoryUid;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.world.World;
@@ -286,9 +291,66 @@ public class AE2FCRUCompat {
         AE2FCRUOptional.run(() -> AE2FCRUDirectCompat.setHalfSize(button, halfSize));
     }
 
-    public static void sendRecipeTransfer(Object container, boolean fluidFirst, boolean combine,
-                                          Object recipeLayout, boolean craftMode) {
-        if (!isLoaded()) return;
+    /**
+     * Returns true only for the AE2FC container opened by this mod's block.
+     * This is used from AE2's generic JEI handler, which otherwise wins over
+     * AE2FC's more specific handler and silently drops fluid ingredients.
+     */
+    public static boolean isUtilixFluidPatternContainer(@Nullable Object container) {
+        return container != null
+                && "com.glodblock.github.client.container.ContainerFluidPatternTerminal".equals(container.getClass().getName())
+                && getUtilixPatternTerminal(container) != null;
+    }
+
+    /**
+     * Transfers a JEI recipe through AE2FC's builder and packet.  The builder
+     * converts JEI FluidStack/GasStack ingredients into AE2FC fake-resource
+     * items, which are then accepted by TilePatternTerminal.onChangeCrafting.
+     */
+    public static boolean transferNativeFluidPatternRecipe(@Nullable Object container,
+                                                            @Nullable IRecipeLayout recipeLayout) {
+        if (!isUtilixFluidPatternContainer(container) || recipeLayout == null) {
+            return false;
+        }
+        try {
+            boolean craftMode = (boolean) container.getClass()
+                    .getMethod("isCraftingMode")
+                    .invoke(container);
+            String categoryUid = recipeLayout.getRecipeCategory().getUid();
+            if (craftMode && !VanillaRecipeCategoryUid.CRAFTING.equals(categoryUid)) {
+                NetworkHandler.instance().sendToServer(new PacketValueConfig("PatternTerminal.CraftMode", "0"));
+                craftMode = false;
+            } else if (!craftMode && VanillaRecipeCategoryUid.CRAFTING.equals(categoryUid)) {
+                NetworkHandler.instance().sendToServer(new PacketValueConfig("PatternTerminal.CraftMode", "1"));
+                craftMode = true;
+            }
+
+            boolean fluidFirst = readBooleanField(container, "fluidFirst");
+            boolean combine = readBooleanField(container, "combine");
+            return sendRecipeTransfer(container, fluidFirst, combine, recipeLayout, craftMode);
+        } catch (Throwable e) {
+            AE2Utilix.LOGGER.warn("Failed to transfer a JEI recipe into the AE2FC pattern terminal", e);
+            return false;
+        }
+    }
+
+    private static boolean readBooleanField(Object target, String name) throws ReflectiveOperationException {
+        Class<?> type = target.getClass();
+        while (type != null) {
+            try {
+                Field field = type.getDeclaredField(name);
+                field.setAccessible(true);
+                return field.getBoolean(target);
+            } catch (NoSuchFieldException e) {
+                type = type.getSuperclass();
+            }
+        }
+        throw new NoSuchFieldException(name);
+    }
+
+    public static boolean sendRecipeTransfer(Object container, boolean fluidFirst, boolean combine,
+                                             Object recipeLayout, boolean craftMode) {
+        if (!isLoaded()) return false;
         try {
             Class<?> builderClass = Class.forName("com.glodblock.github.integration.jei.RecipeTransferBuilder");
             Object builder = null;
@@ -300,7 +362,7 @@ public class AE2FCRUCompat {
                     break;
                 }
             }
-            if (builder == null) return;
+            if (builder == null) return false;
             builderClass.getMethod("clearEmptySlot", boolean.class).invoke(builder, !craftMode);
             builderClass.getMethod("putFluidFirst", boolean.class).invoke(builder, fluidFirst);
             Object transfer = builderClass.getMethod("build").invoke(builder);
@@ -322,19 +384,35 @@ public class AE2FCRUCompat {
                     break;
                 }
             }
-            if (packet == null) return;
+            if (packet == null) return false;
             Class<?> fluidCraftClass = Class.forName("com.glodblock.github.FluidCraft");
             Object proxy = fluidCraftClass.getField("proxy").get(null);
-            Object netHandler = proxy.getClass().getField("netHandler").get(proxy);
+            Object netHandler = readFieldValue(proxy, "netHandler");
             for (Method method : netHandler.getClass().getMethods()) {
                 if ("sendToServer".equals(method.getName()) && method.getParameterTypes().length == 1
                         && method.getParameterTypes()[0].isAssignableFrom(packet.getClass())) {
                     method.invoke(netHandler, packet);
-                    return;
+                    return true;
                 }
             }
+            return false;
         } catch (Throwable ignored) {
+            return false;
         }
+    }
+
+    private static Object readFieldValue(Object target, String name) throws ReflectiveOperationException {
+        Class<?> type = target.getClass();
+        while (type != null) {
+            try {
+                Field field = type.getDeclaredField(name);
+                field.setAccessible(true);
+                return field.get(target);
+            } catch (NoSuchFieldException e) {
+                type = type.getSuperclass();
+            }
+        }
+        throw new NoSuchFieldException(name);
     }
 
     private interface Action {

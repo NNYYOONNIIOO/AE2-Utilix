@@ -3,11 +3,8 @@ package com.ae2utilix.mixin;
 import com.ae2utilix.integration.AE2FCRUCompat;
 import com.glodblock.github.client.container.ContainerFluidPatternTerminal;
 import mezz.jei.api.gui.IRecipeLayout;
-import mezz.jei.api.recipe.VanillaRecipeCategoryUid;
 import mezz.jei.api.recipe.transfer.IRecipeTransferError;
 import net.minecraft.entity.player.EntityPlayer;
-import appeng.core.sync.network.NetworkHandler;
-import appeng.core.sync.packets.PacketValueConfig;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -15,7 +12,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import java.io.IOException;
 
 /**
  * AE2FC's handler deliberately ignores containers whose host is not an
@@ -39,26 +35,7 @@ public abstract class MixinFluidPatternTerminalRecipeTransferHandlerAE2FC {
         }
 
         if (doTransfer) {
-            boolean craftMode = container.craftingMode;
-            try {
-                if (container.isCraftingMode()
-                        && !recipeLayout.getRecipeCategory().getUid().equals(VanillaRecipeCategoryUid.CRAFTING)) {
-                    NetworkHandler.instance().sendToServer(new PacketValueConfig("PatternTerminal.CraftMode", "0"));
-                    craftMode = false;
-                } else if (!container.isCraftingMode()
-                        && recipeLayout.getRecipeCategory().getUid().equals(VanillaRecipeCategoryUid.CRAFTING)) {
-                    NetworkHandler.instance().sendToServer(new PacketValueConfig("PatternTerminal.CraftMode", "1"));
-                    craftMode = true;
-                }
-            } catch (IOException ignored) {
-            }
-
-            AE2FCRUCompat.sendRecipeTransfer(
-                    container,
-                    container.fluidFirst,
-                    container.combine,
-                    recipeLayout,
-                    craftMode);
+            AE2FCRUCompat.transferNativeFluidPatternRecipe(container, recipeLayout);
         }
 
         cir.setReturnValue(null);
