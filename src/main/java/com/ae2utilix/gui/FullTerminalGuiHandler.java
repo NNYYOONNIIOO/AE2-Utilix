@@ -1,6 +1,7 @@
 package com.ae2utilix.gui;
 
 import appeng.api.storage.ITerminalHost;
+import appeng.api.util.AEPartLocation;
 import appeng.client.gui.implementations.GuiPatternTerm;
 import appeng.client.gui.implementations.GuiMEMonitorable;
 import appeng.container.AEBaseContainer;
@@ -87,7 +88,17 @@ public class FullTerminalGuiHandler implements IGuiHandler {
 
     private static Object withOpenContext(Object container, TileEntity tile) {
         if (container instanceof AEBaseContainer) {
-            ((AEBaseContainer) container).setOpenContext(new ContainerOpenContext(tile));
+            ContainerOpenContext context = new ContainerOpenContext(tile);
+            if (tile.getWorld() != null) {
+                context.setWorld(tile.getWorld());
+            }
+            if (tile.getPos() != null) {
+                context.setX(tile.getPos().getX());
+                context.setY(tile.getPos().getY());
+                context.setZ(tile.getPos().getZ());
+            }
+            context.setSide(AEPartLocation.INTERNAL);
+            ((AEBaseContainer) container).setOpenContext(context);
         }
         return container;
     }
