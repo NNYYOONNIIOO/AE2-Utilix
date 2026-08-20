@@ -4,7 +4,11 @@
   "compatibilityLevel": "JAVA_8",
   "mixins": [
     "MixinContainerFullPatternAE2FC",
-    "MixinTilePatternTerminalAE2FC"
+    "MixinTilePatternTerminalAE2FC",
+    "MixinContainerFluidPatternTerminalAE2FC"
+  ],
+  "client": [
+    "MixinFluidPatternTerminalRecipeTransferHandlerAE2FC"
   ],
   "injectors": {
     "defaultRequire": 0

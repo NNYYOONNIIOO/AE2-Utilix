@@ -3,6 +3,7 @@ package com.ae2utilix.integration;
 import appeng.api.storage.data.IAEItemStack;
 import appeng.api.storage.data.IItemList;
 import com.mojang.authlib.GameProfile;
+import com.ae2utilix.block.terminal.TilePatternTerminal;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
@@ -14,6 +15,7 @@ import net.minecraftforge.fml.common.Loader;
 
 import javax.annotation.Nullable;
 import java.lang.reflect.Field;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.UUID;
 
@@ -26,6 +28,31 @@ public class AE2FCRUCompat {
             loaded = Loader.isModLoaded("ae2fc");
         }
         return loaded;
+    }
+
+    /**
+     * Gets the block host stored by AE2FC's native fluid-pattern container.
+     * AE2FC names this private field {@code part}; for a normal AE2FC panel it
+     * contains the panel part, while for this block terminal it contains the
+     * TilePatternTerminal added through the optional Mixin.
+     */
+    @Nullable
+    public static TilePatternTerminal getUtilixPatternTerminal(Object container) {
+        if (container == null) return null;
+        Class<?> type = container.getClass();
+        while (type != null) {
+            try {
+                Field field = type.getDeclaredField("part");
+                field.setAccessible(true);
+                Object value = field.get(container);
+                return value instanceof TilePatternTerminal ? (TilePatternTerminal) value : null;
+            } catch (NoSuchFieldException e) {
+                type = type.getSuperclass();
+            } catch (Throwable e) {
+                return null;
+            }
+        }
+        return null;
     }
 
     public static void sendFluidPatternBtns(String name, String value) {
@@ -223,15 +250,38 @@ public class AE2FCRUCompat {
         if (!isLoaded()) return;
         try {
             Class<?> builderClass = Class.forName("com.glodblock.github.integration.jei.RecipeTransferBuilder");
-            Object builder = builderClass.getConstructor(Object.class).newInstance(recipeLayout);
+            Object builder = null;
+            for (Constructor<?> constructor : builderClass.getConstructors()) {
+                Class<?>[] parameterTypes = constructor.getParameterTypes();
+                if (parameterTypes.length == 1 && recipeLayout != null
+                        && parameterTypes[0].isAssignableFrom(recipeLayout.getClass())) {
+                    builder = constructor.newInstance(recipeLayout);
+                    break;
+                }
+            }
+            if (builder == null) return;
             builderClass.getMethod("clearEmptySlot", boolean.class).invoke(builder, !craftMode);
             builderClass.getMethod("putFluidFirst", boolean.class).invoke(builder, fluidFirst);
             Object transfer = builderClass.getMethod("build").invoke(builder);
-            Object input = transfer.getClass().getMethod("getInput").invoke(transfer);
-            Object output = transfer.getClass().getMethod("getOutput").invoke(transfer);
+            Method inputMethod = transfer.getClass().getMethod("getInput");
+            Method outputMethod = transfer.getClass().getMethod("getOutput");
+            inputMethod.setAccessible(true);
+            outputMethod.setAccessible(true);
+            Object input = inputMethod.invoke(transfer);
+            Object output = outputMethod.invoke(transfer);
             Class<?> packetClass = Class.forName("com.glodblock.github.network.CPacketLoadPattern");
-            Object packet = packetClass.getConstructor(input.getClass(), output.getClass(), boolean.class)
-                    .newInstance(input, output, combine);
+            Object packet = null;
+            for (Constructor<?> constructor : packetClass.getConstructors()) {
+                Class<?>[] parameterTypes = constructor.getParameterTypes();
+                if (parameterTypes.length == 3 && parameterTypes[2] == boolean.class
+                        && input != null && output != null
+                        && parameterTypes[0].isAssignableFrom(input.getClass())
+                        && parameterTypes[1].isAssignableFrom(output.getClass())) {
+                    packet = constructor.newInstance(input, output, combine);
+                    break;
+                }
+            }
+            if (packet == null) return;
             Class<?> fluidCraftClass = Class.forName("com.glodblock.github.FluidCraft");
             Object proxy = fluidCraftClass.getField("proxy").get(null);
             Object netHandler = proxy.getClass().getField("netHandler").get(proxy);
