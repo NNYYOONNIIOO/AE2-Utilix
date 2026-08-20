@@ -88,8 +88,15 @@ public class FullTerminalGuiHandler implements IGuiHandler {
                 return new ContainerFullCrafting(player.inventory, host);
             case GUI_PATTERN_TERMINAL:
                 Object fluidPatternContainer = createFluidPatternContainer(player.inventory, host);
-                return fluidPatternContainer != null
-                        ? fluidPatternContainer
+                if (fluidPatternContainer != null) {
+                    return fluidPatternContainer;
+                }
+                // Never fall back to the ordinary AE2 container while AE2FC
+                // is present: that path can encode a fluid recipe as a
+                // normal encoded_pattern. The project's container retains
+                // the AE2FC encoder as a safe fallback.
+                return AE2FCRUCompat.isLoaded()
+                        ? new ContainerFullPattern(player.inventory, host)
                         : new ContainerPatternTerm(player.inventory, host);
             case GUI_INTERFACE_TERMINAL:
                 if (te instanceof TileInterfaceTerminal) {
@@ -125,8 +132,13 @@ public class FullTerminalGuiHandler implements IGuiHandler {
                 return new GuiFullCrafting(player.inventory, host);
             case GUI_PATTERN_TERMINAL:
                 Object fluidPatternGui = createFluidPatternGui(player.inventory, host);
-                return fluidPatternGui != null
-                        ? fluidPatternGui
+                if (fluidPatternGui != null) {
+                    return fluidPatternGui;
+                }
+                // Keep the client/server container pair consistent with the
+                // server fallback above and preserve AE2FC fluid encoding.
+                return AE2FCRUCompat.isLoaded()
+                        ? new GuiFullPattern(player.inventory, host)
                         : new GuiPatternTerm(player.inventory, host);
             case GUI_INTERFACE_TERMINAL:
                 if (te instanceof TileInterfaceTerminal) {
