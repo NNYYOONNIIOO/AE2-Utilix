@@ -407,9 +407,6 @@ public class AE2Utilix implements IGuiHandler {
                 case FullTerminalGuiHandler.GUI_CRAFTING_TERMINAL:
                     container = new com.ae2utilix.gui.ContainerFullCrafting(player.inventory, host);
                     break;
-                case FullTerminalGuiHandler.GUI_PATTERN_TERMINAL:
-                    container = new com.ae2utilix.gui.ContainerFullPattern(player.inventory, host);
-                    break;
                 case FullTerminalGuiHandler.GUI_INTERFACE_TERMINAL:
                     if (te instanceof com.ae2utilix.block.terminal.TileInterfaceTerminal) {
                         container = new com.ae2utilix.gui.ContainerFullInterface(player.inventory,
@@ -469,8 +466,6 @@ public class AE2Utilix implements IGuiHandler {
                     return new appeng.client.gui.implementations.GuiMEMonitorable(player.inventory, host);
                 case FullTerminalGuiHandler.GUI_CRAFTING_TERMINAL:
                     return new com.ae2utilix.gui.GuiFullCrafting(player.inventory, host);
-                case FullTerminalGuiHandler.GUI_PATTERN_TERMINAL:
-                    return new com.ae2utilix.gui.GuiFullPattern(player.inventory, host);
                 case FullTerminalGuiHandler.GUI_INTERFACE_TERMINAL:
                     if (te instanceof com.ae2utilix.block.terminal.TileInterfaceTerminal) {
                         return new com.ae2utilix.gui.GuiFullInterface(player.inventory,
