@@ -27,11 +27,10 @@ public class FullTerminalGuiHandler implements IGuiHandler {
     public static final int GUI_COMMON_EXPORT_BUS = 30;
 
     /**
-     * Use AE2FC's native fluid pattern container when it is present.  Its GUI
-     * extends AE2's GuiPatternTerm, so JEI transfers and fluid-pattern
-     * encoding use the same path as the normal AE2/AE2FC terminals.  The
-     * reflection keeps AE2FC optional and lets the vanilla AE2 terminal be
-     * used when the integration is absent or incompatible.
+     * AE2FC's fluid terminal is an extension of AE2's original pattern
+     * terminal.  Use it for this block when AE2FC is installed, so the block
+     * gets the native AE2 GUI while the server container retains AE2FC's
+     * fluid-pattern encoder and JEI transfer implementation.
      */
     @Nullable
     private static Object createFluidPatternContainer(InventoryPlayer inventory, ITerminalHost host) {
@@ -41,7 +40,8 @@ public class FullTerminalGuiHandler implements IGuiHandler {
         try {
             Class<?> type = Class.forName("com.glodblock.github.client.container.ContainerFluidPatternTerminal");
             return type.getConstructor(InventoryPlayer.class, ITerminalHost.class).newInstance(inventory, host);
-        } catch (ReflectiveOperationException | LinkageError ignored) {
+        } catch (ReflectiveOperationException | LinkageError e) {
+            com.ae2utilix.AE2Utilix.LOGGER.warn("Unable to create AE2FC fluid pattern container; using AE2 pattern container", e);
             return null;
         }
     }
@@ -54,7 +54,8 @@ public class FullTerminalGuiHandler implements IGuiHandler {
         try {
             Class<?> type = Class.forName("com.glodblock.github.client.client.gui.GuiFluidPatternTerminal");
             return type.getConstructor(InventoryPlayer.class, ITerminalHost.class).newInstance(inventory, host);
-        } catch (ReflectiveOperationException | LinkageError ignored) {
+        } catch (ReflectiveOperationException | LinkageError e) {
+            com.ae2utilix.AE2Utilix.LOGGER.warn("Unable to create AE2FC fluid pattern GUI; using AE2 pattern GUI", e);
             return null;
         }
     }
