@@ -2,6 +2,7 @@ package com.ae2utilix.integration;
 
 import appeng.api.storage.data.IAEItemStack;
 import appeng.api.storage.data.IItemList;
+import com.mojang.authlib.GameProfile;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
@@ -191,7 +192,13 @@ public class AE2FCRUCompat {
             Object pattern = cls.getConstructor(ItemStack.class).newInstance(patternStack);
             cls.getMethod("setInputs", IAEItemStack[].class).invoke(pattern, (Object) inputs);
             cls.getMethod("setOutputs", IAEItemStack[].class).invoke(pattern, (Object) outputs);
-            cls.getMethod("setEncoder", UUID.class).invoke(pattern, encoder);
+            try {
+                cls.getMethod("setEncoder", GameProfile.class)
+                        .invoke(pattern, new GameProfile(encoder, ""));
+            } catch (NoSuchMethodException ignored) {
+                // Keep compatibility with older AE2FC builds that accepted a UUID.
+                cls.getMethod("setEncoder", UUID.class).invoke(pattern, encoder);
+            }
             return (ItemStack) cls.getMethod("writeToStack").invoke(pattern);
         } catch (Throwable e) {
             return null;

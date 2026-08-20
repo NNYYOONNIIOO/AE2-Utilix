@@ -56,6 +56,7 @@ public class TileCrystalGrowthChamber extends AENetworkPowerTile implements IGri
     private int progress = 0;
     private int maxProgress = 100;
     private CrystalGrowthRecipe currentRecipe = null;
+    private int currentParallelRuns = 0;
     private ItemStack clientDisplayStack = ItemStack.EMPTY;
 
     private final NotifyingFluidTank inputTank = new NotifyingFluidTank(5000);
@@ -437,8 +438,24 @@ public class TileCrystalGrowthChamber extends AENetworkPowerTile implements IGri
     }
 
     private TickRateModulation tryStartRecipe() {
-        int parallelRuns = 1 << getParallelCardCount();
-        CrystalGrowthRecipe recipe = CrystalGrowthRecipes.findMatchingRecipe(inputInv, inputTank.getFluid(), parallelRuns);
+        int maxParallelRuns = 1 << getParallelCardCount();
+        int parallelRuns = 0;
+        CrystalGrowthRecipe recipe = null;
+        // Parallel cards provide a maximum, not a mandatory batch size. Try
+        // the largest batch that the available inputs and output capacity can
+        // currently support, then fall back to a smaller batch.
+        for (int candidateRuns = maxParallelRuns; candidateRuns >= 1; candidateRuns--) {
+            CrystalGrowthRecipe candidate = CrystalGrowthRecipes.findMatchingRecipe(
+                    inputInv, inputTank.getFluid(), candidateRuns);
+            if (candidate == null
+                    || !candidate.canFitOutputs(outputInv, candidateRuns)
+                    || !candidate.canFitFluidOutput(outputTank, candidateRuns)) {
+                continue;
+            }
+            recipe = candidate;
+            parallelRuns = candidateRuns;
+            break;
+        }
         if (recipe == null) {
             if (progress > 0) {
                 progress = 0;
@@ -448,20 +465,13 @@ public class TileCrystalGrowthChamber extends AENetworkPowerTile implements IGri
             return TickRateModulation.SLOWER;
         }
 
-        if (!recipe.canFitOutputs(outputInv, parallelRuns)) {
-            return TickRateModulation.SLOWER;
-        }
-
-        if (!recipe.canFitFluidOutput(outputTank, parallelRuns)) {
-            return TickRateModulation.SLOWER;
-        }
-
         double energyPerTick = getAdjustedEnergyPerTick(recipe.getEnergyCost(), recipe.getProcessingTime()) * parallelRuns;
         if (this.getInternalCurrentPower() < energyPerTick) {
             return TickRateModulation.SLOWER;
         }
 
         currentRecipe = recipe;
+        currentParallelRuns = parallelRuns;
         maxProgress = getAdjustedProcessingTime(recipe.getProcessingTime());
         progress = 0;
 
@@ -475,7 +485,7 @@ public class TileCrystalGrowthChamber extends AENetworkPowerTile implements IGri
     }
 
     private TickRateModulation processRecipe(int ticksSinceLastCall) {
-        int parallelRuns = 1 << getParallelCardCount();
+        int parallelRuns = Math.max(1, currentParallelRuns);
         double energyPerTick = getAdjustedEnergyPerTick(currentRecipe.getEnergyCost(), currentRecipe.getProcessingTime()) * parallelRuns;
 
         if (this.getInternalCurrentPower() < energyPerTick) {
@@ -499,6 +509,7 @@ public class TileCrystalGrowthChamber extends AENetworkPowerTile implements IGri
                 syncToClients();
             }
             currentRecipe = null;
+            currentParallelRuns = 0;
             progress = 0;
             maxProgress = 100;
             TickRateModulation result = tryStartRecipe();
