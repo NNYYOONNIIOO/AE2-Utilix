@@ -365,6 +365,13 @@ public class AE2Utilix implements IGuiHandler {
 
     @Override
     public Object getServerGuiElement(int ID, net.minecraft.entity.player.EntityPlayer player, net.minecraft.world.World world, int x, int y, int z) {
+        // This is the actual GUI entry point used by the terminal blocks.
+        // Route the pattern terminal through the native AE2/AE2FC handler;
+        // otherwise this method would keep constructing ContainerFullPattern
+        // and fluid recipes would be encoded as ordinary AE2 patterns.
+        if (ID == FullTerminalGuiHandler.GUI_PATTERN_TERMINAL) {
+            return new FullTerminalGuiHandler().getServerGuiElement(ID, player, world, x, y, z);
+        }
         net.minecraft.tileentity.TileEntity te = world.getTileEntity(new net.minecraft.util.math.BlockPos(x, y, z));
         if (ID >= FullTerminalGuiHandler.GUI_COMMON_IMPORT_BUS
                 && ID < FullTerminalGuiHandler.GUI_COMMON_IMPORT_BUS + 6) {
@@ -426,6 +433,10 @@ public class AE2Utilix implements IGuiHandler {
 
     @Override
     public Object getClientGuiElement(int ID, net.minecraft.entity.player.EntityPlayer player, net.minecraft.world.World world, int x, int y, int z) {
+        // Keep the client GUI paired with the server container selected above.
+        if (ID == FullTerminalGuiHandler.GUI_PATTERN_TERMINAL) {
+            return new FullTerminalGuiHandler().getClientGuiElement(ID, player, world, x, y, z);
+        }
         net.minecraft.tileentity.TileEntity te = world.getTileEntity(new net.minecraft.util.math.BlockPos(x, y, z));
         if (ID >= FullTerminalGuiHandler.GUI_COMMON_IMPORT_BUS
                 && ID < FullTerminalGuiHandler.GUI_COMMON_IMPORT_BUS + 6) {
