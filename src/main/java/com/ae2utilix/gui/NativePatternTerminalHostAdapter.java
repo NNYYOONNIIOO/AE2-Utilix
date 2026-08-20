@@ -24,6 +24,7 @@ import net.minecraftforge.items.IItemHandler;
  * pattern terminal is intentionally a TileEntity.
  */
 public class NativePatternTerminalHostAdapter extends AbstractPartEncoder {
+    private static final ThreadLocal<TilePatternTerminal> CONSTRUCTING_TERMINAL = new ThreadLocal<>();
     private final TilePatternTerminal terminal;
 
     public NativePatternTerminalHostAdapter(TilePatternTerminal terminal) {
@@ -31,89 +32,108 @@ public class NativePatternTerminalHostAdapter extends AbstractPartEncoder {
         this.terminal = terminal;
     }
 
+    public static void beginConstruction(TilePatternTerminal terminal) {
+        CONSTRUCTING_TERMINAL.set(terminal);
+    }
+
+    public static void endConstruction() {
+        CONSTRUCTING_TERMINAL.remove();
+    }
+
+    private TilePatternTerminal delegate() {
+        TilePatternTerminal result = this.terminal;
+        if (result == null) {
+            result = CONSTRUCTING_TERMINAL.get();
+        }
+        if (result == null) {
+            throw new IllegalStateException("Pattern terminal adapter has no block host");
+        }
+        return result;
+    }
+
     public TilePatternTerminal getTerminal() {
-        return this.terminal;
+        return delegate();
     }
 
     @Override
     public AENetworkProxy getProxy() {
-        return this.terminal.getProxy();
+        return delegate().getProxy();
     }
 
     @Override
     public IGridNode getGridNode() {
-        return this.terminal.getProxy().getNode();
+        return delegate().getProxy().getNode();
     }
 
     @Override
     public IGridNode getGridNode(AEPartLocation direction) {
-        return this.terminal.getProxy().getNode();
+        return delegate().getProxy().getNode();
     }
 
     @Override
     public IGridNode getActionableNode() {
-        return this.terminal.getProxy().getNode();
+        return delegate().getProxy().getNode();
     }
 
     @Override
     public TileEntity getTile() {
-        return this.terminal;
+        return delegate();
     }
 
     @Override
     public DimensionalCoord getLocation() {
-        return new DimensionalCoord(this.terminal);
+        return new DimensionalCoord(delegate());
     }
 
     @Override
     public <T extends IAEStack<T>> IMEMonitor<T> getInventory(IStorageChannel<T> channel) {
-        return this.terminal.getInventory(channel);
+        return delegate().getInventory(channel);
     }
 
     @Override
     public IItemHandler getInventoryByName(String name) {
-        return this.terminal.getInventoryByName(name);
+        return delegate().getInventoryByName(name);
     }
 
     @Override
     public IConfigManager getConfigManager() {
-        return this.terminal.getConfigManager();
+        return delegate().getConfigManager();
     }
 
     @Override
     public IItemHandler getViewCellStorage() {
-        return this.terminal.getViewCellStorage();
+        return delegate().getViewCellStorage();
     }
 
     @Override
     public void saveChanges() {
-        this.terminal.saveChanges();
+        delegate().saveChanges();
     }
 
     @Override
     public boolean isCraftingRecipe() {
-        return this.terminal.isCraftingRecipe();
+        return delegate().isCraftingRecipe();
     }
 
     @Override
     public void setCraftingRecipe(boolean crafting) {
-        this.terminal.setCraftingRecipe(crafting);
+        delegate().setCraftingRecipe(crafting);
     }
 
     @Override
     public boolean isSubstitution() {
-        return this.terminal.isSubstitute();
+        return delegate().isSubstitute();
     }
 
     @Override
     public void setSubstitution(boolean substitute) {
-        this.terminal.setSubstitute(substitute);
+        delegate().setSubstitute(substitute);
     }
 
     @Override
     public void onChangeInventory(IItemHandler inventory, int slot, InvOperation operation,
                                   ItemStack removedStack, ItemStack addedStack) {
-        this.terminal.onChangeInventory(inventory, slot, operation, removedStack, addedStack);
+        delegate().onChangeInventory(inventory, slot, operation, removedStack, addedStack);
     }
 
     @Override

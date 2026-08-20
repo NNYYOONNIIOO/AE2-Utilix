@@ -59,14 +59,22 @@ public class FullTerminalGuiHandler implements IGuiHandler {
         }
         TilePatternTerminal terminal = (TilePatternTerminal) host;
         if (fluid && AE2FCRUCompat.isLoaded()) {
+            NativePatternTerminalHostAdapter.beginConstruction(terminal);
             try {
                 Class<?> type = Class.forName("com.ae2utilix.gui.AE2FCNativePatternTerminalHostAdapter");
                 return (ITerminalHost) type.getConstructor(TilePatternTerminal.class).newInstance(terminal);
             } catch (Throwable e) {
                 com.ae2utilix.AE2Utilix.LOGGER.warn("Unable to create AE2FC pattern host adapter", e);
+            } finally {
+                NativePatternTerminalHostAdapter.endConstruction();
             }
         }
-        return new NativePatternTerminalHostAdapter(terminal);
+        NativePatternTerminalHostAdapter.beginConstruction(terminal);
+        try {
+            return new NativePatternTerminalHostAdapter(terminal);
+        } finally {
+            NativePatternTerminalHostAdapter.endConstruction();
+        }
     }
 
     /**
