@@ -55,6 +55,47 @@ public class AE2FCRUCompat {
         return null;
     }
 
+    /**
+     * Checks the actual block inventories used by the native AE2FC container.
+     * This avoids relying on the container's private slot bookkeeping, which
+     * only contains the first page of the expanded block terminal.
+     */
+    public static boolean hasFluidOrGasPatternContent(@Nullable TilePatternTerminal terminal) {
+        if (!isLoaded() || terminal == null) {
+            return false;
+        }
+        return containsFluidOrGasFakeItem(terminal.getInventoryByName("crafting"))
+                || containsFluidOrGasFakeItem(terminal.getInventoryByName("output"));
+    }
+
+    private static boolean containsFluidOrGasFakeItem(@Nullable IItemHandler inventory) {
+        if (inventory == null) {
+            return false;
+        }
+        for (int slot = 0; slot < inventory.getSlots(); slot++) {
+            if (isFluidOrGasFakeItem(inventory.getStackInSlot(slot))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isFluidOrGasFakeItem(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) {
+            return false;
+        }
+        if (isFluidFakeItem(stack)) {
+            return true;
+        }
+        try {
+            Class<?> gases = Class.forName("com.glodblock.github.integration.mek.FakeGases");
+            Method method = gases.getMethod("isGasFakeItem", ItemStack.class);
+            return (boolean) method.invoke(null, stack);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
     public static void sendFluidPatternBtns(String name, String value) {
         if (!isLoaded()) return;
         AE2FCRUOptional.run(() -> AE2FCRUDirectCompat.sendPatternButton(name, value));

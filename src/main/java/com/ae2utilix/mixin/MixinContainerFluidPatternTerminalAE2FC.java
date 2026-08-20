@@ -8,7 +8,9 @@ import net.minecraft.item.ItemStack;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.List;
 
@@ -19,6 +21,14 @@ import java.util.List;
  */
 @Mixin(value = ContainerFluidPatternTerminal.class, remap = false)
 public abstract class MixinContainerFluidPatternTerminalAE2FC {
+
+    @Inject(method = "checkHasFluidPattern", at = @At("HEAD"), cancellable = true, remap = false)
+    private void ae2utilix$checkHasFluidPattern(CallbackInfoReturnable<Boolean> cir) {
+        TilePatternTerminal terminal = AE2FCRUCompat.getUtilixPatternTerminal(this);
+        if (terminal != null) {
+            cir.setReturnValue(AE2FCRUCompat.hasFluidOrGasPatternContent(terminal));
+        }
+    }
 
     @Inject(method = "acceptPattern", at = @At("HEAD"), cancellable = true, remap = false)
     private void ae2utilix$acceptPattern(Int2ObjectMap<ItemStack[]> inputs,
