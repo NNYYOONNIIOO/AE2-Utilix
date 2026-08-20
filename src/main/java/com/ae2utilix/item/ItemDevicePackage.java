@@ -387,7 +387,11 @@ public class ItemDevicePackage extends Item {
             int scanned = 0;
             while (!pending.isEmpty() && scanned++ < 256) {
                 Object current = pending.removeFirst();
-                if (current == null || !visited.add(current) || !isAppEngObject(current)) {
+                // Optional integrations provide the concrete part class outside
+                // the appeng package. Scan that root part as well so its AE2
+                // proxy/grid node can be found and detached before NBT loading.
+                if (current == null || !visited.add(current)
+                        || (current != part && !isAppEngObject(current))) {
                     continue;
                 }
 
