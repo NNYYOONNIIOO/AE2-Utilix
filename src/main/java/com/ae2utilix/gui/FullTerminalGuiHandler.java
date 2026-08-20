@@ -39,7 +39,12 @@ public class FullTerminalGuiHandler implements IGuiHandler {
         }
         try {
             Class<?> type = Class.forName("com.glodblock.github.client.container.ContainerFluidPatternTerminal");
-            return type.getConstructor(InventoryPlayer.class, ITerminalHost.class).newInstance(inventory, host);
+            Object container = type.getConstructor(InventoryPlayer.class, ITerminalHost.class).newInstance(inventory, host);
+            if (!(container instanceof appeng.container.ContainerNull)
+                    && !implementsInterface(container, "com.glodblock.github.interfaces.FCFluidPatternContainer")) {
+                throw new IllegalStateException("AE2FC returned a container without FCFluidPatternContainer");
+            }
+            return container;
         } catch (ReflectiveOperationException | LinkageError e) {
             com.ae2utilix.AE2Utilix.LOGGER.warn("Unable to create AE2FC fluid pattern container; using AE2 pattern container", e);
             return null;
@@ -58,6 +63,10 @@ public class FullTerminalGuiHandler implements IGuiHandler {
             com.ae2utilix.AE2Utilix.LOGGER.warn("Unable to create AE2FC fluid pattern GUI; using AE2 pattern GUI", e);
             return null;
         }
+    }
+
+    private static boolean implementsInterface(Object value, String interfaceName) throws ClassNotFoundException {
+        return Class.forName(interfaceName).isInstance(value);
     }
 
     @Nullable
