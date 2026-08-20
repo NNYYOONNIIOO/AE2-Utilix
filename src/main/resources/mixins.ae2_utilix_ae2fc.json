@@ -3,7 +3,8 @@
   "package": "com.ae2utilix.mixin",
   "compatibilityLevel": "JAVA_8",
   "mixins": [
-    "MixinContainerFullPatternAE2FC"
+    "MixinContainerFullPatternAE2FC",
+    "MixinTilePatternTerminalAE2FC"
   ],
   "injectors": {
     "defaultRequire": 0
