@@ -362,6 +362,12 @@ public class AE2FCRUCompat {
                                              Object recipeLayout, boolean craftMode) {
         if (!isLoaded()) return false;
         try {
+            // The AE2 generic JEI handler only serializes ItemStack groups.
+            // If the recipe has a FluidStack group, serialize it through the
+            // AE2FC packet so it becomes a fake fluid item in the terminal.
+            if (trySendDirectFluidTransfer(recipeLayout, fluidFirst, combine)) {
+                return true;
+            }
             Class<?> builderClass = Class.forName("com.glodblock.github.integration.jei.RecipeTransferBuilder");
             Object builder = null;
             for (Constructor<?> constructor : builderClass.getConstructors()) {
@@ -409,6 +415,139 @@ public class AE2FCRUCompat {
         } catch (Throwable ignored) {
             return false;
         }
+    }
+
+    private static boolean trySendDirectFluidTransfer(Object recipeLayout,
+                                                       boolean fluidFirst,
+                                                       boolean combine) {
+        if (!(recipeLayout instanceof IRecipeLayout)) {
+            return false;
+        }
+
+        final IRecipeLayout layout = (IRecipeLayout) recipeLayout;
+        final java.util.Map<Integer, ? extends mezz.jei.api.gui.IGuiIngredient<FluidStack>> fluidIngredients =
+                layout.getFluidStacks().getGuiIngredients();
+        if (fluidIngredients == null || fluidIngredients.isEmpty()) {
+            return false;
+        }
+
+        boolean hasFluidIngredient = false;
+        for (mezz.jei.api.gui.IGuiIngredient<FluidStack> ingredient : fluidIngredients.values()) {
+            if (ingredient.getDisplayedIngredient() != null) {
+                hasFluidIngredient = true;
+                break;
+            }
+        }
+        if (!hasFluidIngredient) {
+            return false;
+        }
+
+        final it.unimi.dsi.fastutil.ints.Int2ObjectMap<ItemStack[]> inputs =
+                new it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap<>();
+        int slot = 0;
+        if (fluidFirst) {
+            slot = appendFluidInputs(fluidIngredients, inputs, slot);
+        }
+
+        final java.util.Map<Integer, ? extends mezz.jei.api.gui.IGuiIngredient<ItemStack>> itemIngredients =
+                layout.getItemStacks().getGuiIngredients();
+        for (mezz.jei.api.gui.IGuiIngredient<ItemStack> ingredient : itemIngredients.values()) {
+            if (!ingredient.isInput()) {
+                continue;
+            }
+            final java.util.List<ItemStack> candidates = new java.util.ArrayList<>();
+            final ItemStack displayed = ingredient.getDisplayedIngredient();
+            if (displayed != null && !displayed.isEmpty()) {
+                candidates.add(displayed.copy());
+            }
+            final java.util.List<ItemStack> all = ingredient.getAllIngredients();
+            if (all != null) {
+                for (ItemStack candidate : all) {
+                    if (candidate != null && !candidate.isEmpty()) {
+                        candidates.add(candidate.copy());
+                    }
+                }
+            }
+            if (!candidates.isEmpty()) {
+                inputs.put(slot++, candidates.toArray(new ItemStack[0]));
+            }
+        }
+
+        if (!fluidFirst) {
+            slot = appendFluidInputs(fluidIngredients, inputs, slot);
+        }
+
+        final java.util.List<ItemStack> outputs = new java.util.ArrayList<>();
+        for (mezz.jei.api.gui.IGuiIngredient<ItemStack> ingredient : itemIngredients.values()) {
+            if (!ingredient.isInput()) {
+                final ItemStack output = ingredient.getDisplayedIngredient();
+                if (output != null && !output.isEmpty()) {
+                    outputs.add(output.copy());
+                }
+            }
+        }
+        for (mezz.jei.api.gui.IGuiIngredient<FluidStack> ingredient : fluidIngredients.values()) {
+            if (!ingredient.isInput()) {
+                final ItemStack output = packFluid2Drops(ingredient.getDisplayedIngredient());
+                if (output != null && !output.isEmpty()) {
+                    outputs.add(output);
+                }
+            }
+        }
+
+        return sendPatternPacket(inputs, outputs, combine);
+    }
+
+    private static int appendFluidInputs(
+            java.util.Map<Integer, ? extends mezz.jei.api.gui.IGuiIngredient<FluidStack>> ingredients,
+            it.unimi.dsi.fastutil.ints.Int2ObjectMap<ItemStack[]> inputs,
+            int slot) {
+        for (mezz.jei.api.gui.IGuiIngredient<FluidStack> ingredient : ingredients.values()) {
+            if (!ingredient.isInput()) {
+                continue;
+            }
+            final ItemStack fakeFluid = packFluid2Drops(ingredient.getDisplayedIngredient());
+            if (fakeFluid != null && !fakeFluid.isEmpty()) {
+                inputs.put(slot++, new ItemStack[]{fakeFluid});
+            }
+        }
+        return slot;
+    }
+
+    private static boolean sendPatternPacket(
+            it.unimi.dsi.fastutil.ints.Int2ObjectMap<ItemStack[]> inputs,
+            java.util.List<ItemStack> outputs,
+            boolean combine) {
+        try {
+            final Class<?> packetClass = Class.forName("com.glodblock.github.network.CPacketLoadPattern");
+            Object packet = null;
+            for (Constructor<?> constructor : packetClass.getConstructors()) {
+                final Class<?>[] parameterTypes = constructor.getParameterTypes();
+                if (parameterTypes.length == 3 && parameterTypes[2] == boolean.class
+                        && parameterTypes[0].isAssignableFrom(inputs.getClass())
+                        && parameterTypes[1].isAssignableFrom(outputs.getClass())) {
+                    packet = constructor.newInstance(inputs, outputs, combine);
+                    break;
+                }
+            }
+            if (packet == null) {
+                return false;
+            }
+
+            final Object proxy = Class.forName("com.glodblock.github.FluidCraft").getField("proxy").get(null);
+            final Object network = readFieldValue(proxy, "netHandler");
+            for (Method method : network.getClass().getMethods()) {
+                if ("sendToServer".equals(method.getName())
+                        && method.getParameterTypes().length == 1
+                        && method.getParameterTypes()[0].isAssignableFrom(packet.getClass())) {
+                    method.invoke(network, packet);
+                    return true;
+                }
+            }
+        } catch (Throwable e) {
+            AE2Utilix.LOGGER.warn("Failed to send direct AE2FC JEI fluid pattern packet", e);
+        }
+        return false;
     }
 
     private static Object readFieldValue(Object target, String name) throws ReflectiveOperationException {
