@@ -20,7 +20,7 @@ import java.io.IOException;
 @Mixin(targets = "appeng.integration.modules.jei.RecipeTransferHandler", remap = false)
 public abstract class MixinRecipeTransferHandler<T extends Container> {
 
-    @Inject(method = "transferRecipe", at = @At(value = "INVOKE", target = "Ljava/util/Map;entrySet()Ljava/util/Set;"), cancellable = true, remap = false)
+    @Inject(method = "transferRecipe", at = @At("HEAD"), cancellable = true, remap = false)
     private void ae2utilix$handleFullPatternMode(@Nonnull T container, IRecipeLayout recipeLayout,
                                                    @Nonnull EntityPlayer player, boolean maxTransfer,
                                                    boolean doTransfer, CallbackInfoReturnable<IRecipeTransferError> cir) {
