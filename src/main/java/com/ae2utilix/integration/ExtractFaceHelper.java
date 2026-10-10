@@ -52,26 +52,13 @@ public class ExtractFaceHelper {
     @Nullable
     public static InventoryAdaptor findOutputAdaptor(TileEntity te, EnumFacing primaryFace,
                                                      ItemStack expectedItem, int amount) {
-        InventoryAdaptor primaryAdaptor = getInventoryAdaptor(te, primaryFace);
-        if (primaryAdaptor != null && canSimulateExtract(primaryAdaptor, expectedItem, amount)) {
-            return primaryAdaptor;
-        }
-
-        for (EnumFacing face : EnumFacing.values()) {
-            if (face == primaryFace) continue;
-
-            InventoryAdaptor adaptor = getInventoryAdaptor(te, face);
-            if (adaptor != null && canSimulateExtract(adaptor, expectedItem, amount)) {
-                return adaptor;
-            }
-        }
-
-        InventoryAdaptor nullAdaptor = getInventoryAdaptor(te, null);
-        if (nullAdaptor != null && canSimulateExtract(nullAdaptor, expectedItem, amount)) {
-            return nullAdaptor;
-        }
-
-        return null;
+        // Product return must stay on the explicitly selected output face. Falling
+        // back to the other faces (or to an unsided capability) is unsafe for
+        // sided machines such as furnaces: their side faces may expose fuel or
+        // input slots in addition to the output inventory.
+        InventoryAdaptor adaptor = getInventoryAdaptor(te, primaryFace);
+        return adaptor != null && canSimulateExtract(adaptor, expectedItem, amount)
+                ? adaptor : null;
     }
 
     public static boolean canSimulateExtract(InventoryAdaptor adaptor, ItemStack expectedItem, int amount) {
