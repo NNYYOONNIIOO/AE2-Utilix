@@ -42,9 +42,10 @@ import java.util.WeakHashMap;
  * Maintains the AE2 bridge behind paired ME Channel Caller blocks.
  *
  * <p>The bridge follows the same shape as an ME P2P tunnel: a channel-bearing
- * proxy is attached to each local network, while the two dense outer proxies
- * are connected to each other. This keeps the wireless edge from consuming a
- * normal channel for every path crossing it.</p>
+ * proxy is attached to each local network, while the dense outer proxies are
+ * joined into one shared network. A UUID therefore represents a channel group,
+ * not just a pair of blocks, and a powered endpoint can power every other
+ * endpoint in that group.</p>
  */
 public final class MEChannelCallerNetwork {
     private static final long REFRESH_INTERVAL = 10L;
@@ -173,67 +174,48 @@ public final class MEChannelCallerNetwork {
 
         Set<String> liveBridgeKeys = new HashSet<>();
         for (Map.Entry<UUID, List<TileMEChannelCaller>> entry : byId.entrySet()) {
-            List<TileMEChannelCaller> pair = entry.getValue();
-            if (pair.size() != 2) {
-                for (TileMEChannelCaller caller : pair) {
-                    boolean powered = hasPoweredEndpoint(caller);
-                    caller.setStatus(powered ? TileMEChannelCaller.STATUS_ERROR
-                                    : TileMEChannelCaller.STATUS_OFF,
-                            powered ? (pair.size() > 2 ? TileMEChannelCaller.REASON_AMBIGUOUS
-                                    : TileMEChannelCaller.REASON_MISSING)
-                                    : TileMEChannelCaller.REASON_NONE, 0);
-                }
-                destroyBridge(bridgeKey(entry.getKey()));
-                continue;
-            }
-
-            TileMEChannelCaller first = pair.get(0);
-            TileMEChannelCaller second = pair.get(1);
-            Endpoint firstEndpoint = findEndpoint(first);
-            Endpoint secondEndpoint = findEndpoint(second);
-            boolean firstPowered = isPowered(firstEndpoint);
-            boolean secondPowered = isPowered(secondEndpoint);
             String key = bridgeKey(entry.getKey());
             CallerBridge bridge = BRIDGES.get(key);
 
-            if (firstEndpoint == null || secondEndpoint == null) {
+            List<TileMEChannelCaller> activeCallers = new ArrayList<>();
+            List<Endpoint> endpoints = new ArrayList<>();
+            for (TileMEChannelCaller caller : entry.getValue()) {
+                Endpoint endpoint = findEndpoint(caller);
+                if (endpoint == null || endpoint.node == null) {
+                    // A caller without an AE node cannot participate, but an
+                    // existing node is enough: GridConnection can attach an
+                    // isolated node to the group's powered network.
+                    caller.setStatus(TileMEChannelCaller.STATUS_OFF,
+                            TileMEChannelCaller.REASON_NONE, 0);
+                } else {
+                    activeCallers.add(caller);
+                    endpoints.add(endpoint);
+                }
+            }
+
+            if (activeCallers.size() < 2) {
                 destroyBridge(key);
-                first.setStatus(firstPowered ? TileMEChannelCaller.STATUS_ERROR
-                                : TileMEChannelCaller.STATUS_OFF,
-                        firstPowered ? TileMEChannelCaller.REASON_MISSING
-                                : TileMEChannelCaller.REASON_NONE, 0);
-                second.setStatus(secondPowered ? TileMEChannelCaller.STATUS_ERROR
-                                : TileMEChannelCaller.STATUS_OFF,
-                        secondPowered ? TileMEChannelCaller.REASON_MISSING
-                                : TileMEChannelCaller.REASON_NONE, 0);
+                for (TileMEChannelCaller caller : entry.getValue()) {
+                    Endpoint endpoint = findEndpoint(caller);
+                    boolean powered = isPowered(endpoint);
+                    caller.setStatus(powered ? TileMEChannelCaller.STATUS_ERROR
+                                    : TileMEChannelCaller.STATUS_OFF,
+                            powered ? TileMEChannelCaller.REASON_MISSING
+                                    : TileMEChannelCaller.REASON_NONE, 0);
+                }
                 continue;
             }
 
-            boolean overloadedForFirst = countChannelUsers(secondEndpoint.node) > getTransferCapacity();
-            boolean overloadedForSecond = countChannelUsers(firstEndpoint.node) > getTransferCapacity();
-
-            if (overloadedForFirst || overloadedForSecond) {
+            // Do not tear down a bridge merely because its own connections
+            // have merged all endpoint nodes into one AE grid. That merge is
+            // the successful result of powering the remote callers.
+            if (bridge != null && !bridge.matches(activeCallers, endpoints)) {
                 destroyBridge(key);
                 bridge = null;
             }
 
-            if (!firstPowered || !secondPowered) {
-                destroyBridge(key);
-                first.setStatus(TileMEChannelCaller.STATUS_OFF, TileMEChannelCaller.REASON_NONE, 0);
-                second.setStatus(TileMEChannelCaller.STATUS_OFF, TileMEChannelCaller.REASON_NONE, 0);
-                continue;
-            }
-
-            if (sameGrid(firstEndpoint.node, secondEndpoint.node)) {
-                // The endpoints can become part of the same local network
-                // after a cable change.  A previously-created wireless
-                // bridge is no longer needed in that case.
-                destroyBridge(key);
-                bridge = null;
-            } else if (!overloadedForFirst && !overloadedForSecond
-                    && (bridge == null || !bridge.matches(firstEndpoint, secondEndpoint))) {
-                destroyBridge(key);
-                bridge = CallerBridge.create(first, firstEndpoint, second, secondEndpoint);
+            if (bridge == null && !allSameGrid(endpoints)) {
+                bridge = CallerBridge.create(activeCallers, endpoints);
                 if (bridge != null) {
                     BRIDGES.put(key, bridge);
                 }
@@ -242,22 +224,24 @@ public final class MEChannelCallerNetwork {
             if (bridge != null) {
                 liveBridgeKeys.add(key);
             }
-            boolean connected = sameGrid(firstEndpoint.node, secondEndpoint.node)
+            boolean connected = allSameGrid(endpoints)
                     || (bridge != null && bridge.isAlive());
-            int firstRemoteChannels = countChannelUsers(secondEndpoint.node);
-            int secondRemoteChannels = countChannelUsers(firstEndpoint.node);
-            first.setStatus(connected && !overloadedForFirst
-                            ? TileMEChannelCaller.STATUS_CONNECTED : TileMEChannelCaller.STATUS_ERROR,
-                    overloadedForFirst ? TileMEChannelCaller.REASON_OVERLOADED
-                            : connected ? TileMEChannelCaller.REASON_NONE
-                            : TileMEChannelCaller.REASON_MISSING,
-                    firstRemoteChannels);
-            second.setStatus(connected && !overloadedForSecond
-                            ? TileMEChannelCaller.STATUS_CONNECTED : TileMEChannelCaller.STATUS_ERROR,
-                    overloadedForSecond ? TileMEChannelCaller.REASON_OVERLOADED
-                            : connected ? TileMEChannelCaller.REASON_NONE
-                            : TileMEChannelCaller.REASON_MISSING,
-                    secondRemoteChannels);
+            for (int i = 0; i < activeCallers.size(); i++) {
+                TileMEChannelCaller caller = activeCallers.get(i);
+                Endpoint endpoint = endpoints.get(i);
+                boolean powered = isPowered(endpoint);
+                int channelUsers = countChannelUsers(endpoint.node);
+                boolean overloaded = connected && channelUsers > getTransferCapacity();
+                caller.setStatus(overloaded ? TileMEChannelCaller.STATUS_ERROR
+                                : connected && powered ? TileMEChannelCaller.STATUS_CONNECTED
+                                : connected ? TileMEChannelCaller.STATUS_OFF
+                                : powered ? TileMEChannelCaller.STATUS_ERROR
+                                : TileMEChannelCaller.STATUS_OFF,
+                        overloaded ? TileMEChannelCaller.REASON_OVERLOADED
+                                : connected || !powered ? TileMEChannelCaller.REASON_NONE
+                                : TileMEChannelCaller.REASON_MISSING,
+                        Math.max(0, channelUsers - 1));
+            }
         }
 
         for (String key : new ArrayList<>(BRIDGES.keySet())) {
@@ -319,7 +303,7 @@ public final class MEChannelCallerNetwork {
         // that a cable attached directly to the block supplies power and the
         // bridge is anchored to the node the cable actually discovered.
         IGridNode callerNode = caller.getGridNode(AEPartLocation.INTERNAL);
-        if (callerNode != null && callerNode.getGrid() != null) {
+        if (callerNode != null) {
             return new Endpoint(callerNode, AEPartLocation.INTERNAL,
                     isController(callerNode));
         }
@@ -391,6 +375,22 @@ public final class MEChannelCallerNetwork {
                 && first.getGrid() == second.getGrid();
     }
 
+    private static boolean allSameGrid(List<Endpoint> endpoints) {
+        if (endpoints == null || endpoints.isEmpty()) {
+            return false;
+        }
+        IGridNode first = endpoints.get(0).node;
+        if (first == null || first.getGrid() == null) {
+            return false;
+        }
+        for (int i = 1; i < endpoints.size(); i++) {
+            if (!sameGrid(first, endpoints.get(i).node)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static String bridgeKey(UUID id) {
         return id == null ? "" : id.toString();
     }
@@ -398,7 +398,7 @@ public final class MEChannelCallerNetwork {
     private static void removeBridgesFor(TileMEChannelCaller caller) {
         for (String key : new ArrayList<>(BRIDGES.keySet())) {
             CallerBridge bridge = BRIDGES.get(key);
-            if (bridge != null && (bridge.first == caller || bridge.second == caller)) {
+            if (bridge != null && bridge.contains(caller)) {
                 destroyBridge(key);
             }
         }
@@ -529,74 +529,142 @@ public final class MEChannelCallerNetwork {
         }
     }
 
+    /**
+     * One wireless bridge for one UUID.  A channel is a group, so this owns
+     * one proxy pair per caller and joins all outer proxies in a star.  The
+     * first powered local network can therefore bring every other caller in
+     * the group online, including callers that were previously isolated.
+     */
     private static final class CallerBridge {
-        private final TileMEChannelCaller first;
-        private final TileMEChannelCaller second;
-        private final Endpoint firstEndpoint;
-        private final Endpoint secondEndpoint;
-        private final BridgeProxy firstProxy;
-        private final BridgeProxy secondProxy;
-        @Nullable
-        private IGridConnection outerConnection;
+        private final List<TileMEChannelCaller> callers;
+        private final List<Endpoint> endpoints;
+        private final List<BridgeProxy> proxies = new ArrayList<>();
+        private final List<IGridConnection> outerConnections = new ArrayList<>();
 
-        private CallerBridge(TileMEChannelCaller first, Endpoint firstEndpoint,
-                             TileMEChannelCaller second, Endpoint secondEndpoint,
-                             BridgeProxy firstProxy, BridgeProxy secondProxy) {
-            this.first = first;
-            this.second = second;
-            this.firstEndpoint = firstEndpoint;
-            this.secondEndpoint = secondEndpoint;
-            this.firstProxy = firstProxy;
-            this.secondProxy = secondProxy;
+        private CallerBridge(List<TileMEChannelCaller> callers,
+                             List<Endpoint> endpoints) {
+            this.callers = new ArrayList<>(callers);
+            this.endpoints = new ArrayList<>(endpoints);
         }
 
         @Nullable
-        private static CallerBridge create(TileMEChannelCaller first, Endpoint firstEndpoint,
-                                           TileMEChannelCaller second, Endpoint secondEndpoint) {
-            BridgeProxy firstProxy = new BridgeProxy(first, firstEndpoint);
-            BridgeProxy secondProxy = new BridgeProxy(second, secondEndpoint);
-            CallerBridge result = new CallerBridge(first, firstEndpoint, second, secondEndpoint,
-                    firstProxy, secondProxy);
-            if (!firstProxy.attach() || !secondProxy.attach()) {
-                result.destroy();
+        private static CallerBridge create(List<TileMEChannelCaller> callers,
+                                           List<Endpoint> endpoints) {
+            if (callers == null || endpoints == null || callers.size() < 2
+                    || callers.size() != endpoints.size()) {
                 return null;
+            }
+
+            CallerBridge result = new CallerBridge(callers, endpoints);
+            for (int i = 0; i < callers.size(); i++) {
+                BridgeProxy proxy = new BridgeProxy(callers.get(i), endpoints.get(i));
+                result.proxies.add(proxy);
+                if (!proxy.attach()) {
+                    result.destroy();
+                    return null;
+                }
+            }
+
+            // Connecting each outer node from a different AE grid to the
+            // first one makes the group topology deterministic and supports
+            // any number of ends. Nodes already on the anchor grid are
+            // already connected transitively and must not receive a second
+            // artificial edge.
+            IGridNode anchor = result.proxies.get(0).outerNode;
+            for (int i = 1; i < result.proxies.size(); i++) {
+                IGridNode remote = result.proxies.get(i).outerNode;
+                if (sameGrid(anchor, remote)) {
+                    continue;
+                }
+                IGridConnection connection = connectOuter(anchor, remote);
+                if (connection == null) {
+                    result.destroy();
+                    return null;
+                }
+                result.outerConnections.add(connection);
+            }
+            return result;
+        }
+
+        @Nullable
+        private static IGridConnection connectOuter(IGridNode first, IGridNode second) {
+            if (first == null || second == null) {
+                return null;
+            }
+            for (IGridConnection connection : first.getConnections()) {
+                if (connection != null && connection.getOtherSide(first) == second) {
+                    return connection;
+                }
             }
             try {
-                result.outerConnection = AEApi.instance().grid().createGridConnection(
-                        firstProxy.outerNode, secondProxy.outerNode);
-                repath(firstProxy.outerNode, secondProxy.outerNode);
-                return result;
+                IGridConnection connection = AEApi.instance().grid()
+                        .createGridConnection(first, second);
+                repath(first, second);
+                return connection;
             } catch (Throwable error) {
                 AE2Utilix.LOGGER.debug("ME Channel Caller outer AE connection failed", error);
-                result.destroy();
                 return null;
             }
         }
 
-        private boolean matches(Endpoint firstEndpoint, Endpoint secondEndpoint) {
-            return this.firstEndpoint.node == firstEndpoint.node
-                    && this.secondEndpoint.node == secondEndpoint.node
-                    && isAlive();
+        private boolean matches(List<TileMEChannelCaller> currentCallers,
+                                List<Endpoint> currentEndpoints) {
+            if (currentCallers == null || currentEndpoints == null
+                    || currentCallers.size() != callers.size()
+                    || currentEndpoints.size() != endpoints.size()) {
+                return false;
+            }
+            for (int i = 0; i < currentCallers.size(); i++) {
+                int oldIndex = callers.indexOf(currentCallers.get(i));
+                if (oldIndex < 0
+                        || endpoints.get(oldIndex).node != currentEndpoints.get(i).node) {
+                    return false;
+                }
+            }
+            return isAlive();
+        }
+
+        private boolean contains(TileMEChannelCaller caller) {
+            return callers.contains(caller);
         }
 
         private boolean isAlive() {
-            return firstProxy.isAlive() && secondProxy.isAlive()
-                    && (sameGrid(firstEndpoint.node, secondEndpoint.node)
-                    || (outerConnection != null
-                    && hasDirectConnection(firstProxy.outerNode, secondProxy.outerNode)));
+            if (proxies.size() != callers.size()) {
+                return false;
+            }
+            for (BridgeProxy proxy : proxies) {
+                if (!proxy.isAlive()) {
+                    return false;
+                }
+            }
+            IGridNode anchor = proxies.get(0).outerNode;
+            for (int i = 1; i < proxies.size(); i++) {
+                IGridNode remote = proxies.get(i).outerNode;
+                if (!sameGrid(anchor, remote)
+                        && !hasDirectConnection(anchor, remote)) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         private void destroy() {
-            if (outerConnection != null) {
+            for (IGridConnection connection : new ArrayList<>(outerConnections)) {
                 try {
-                    outerConnection.destroy();
+                    connection.destroy();
                 } catch (Throwable ignored) {
                 }
-                outerConnection = null;
             }
-            firstProxy.destroy();
-            secondProxy.destroy();
-            repath(firstEndpoint.node, secondEndpoint.node);
+            outerConnections.clear();
+            for (BridgeProxy proxy : new ArrayList<>(proxies)) {
+                proxy.destroy();
+            }
+            proxies.clear();
+            for (Endpoint endpoint : endpoints) {
+                if (endpoint != null) {
+                    repath(endpoint.node, endpoint.node);
+                }
+            }
         }
     }
 

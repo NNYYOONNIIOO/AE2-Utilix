@@ -68,6 +68,7 @@ item.ae2_utilix.me_channel_caller.tooltip.id=Channel UUID: %s
 item.ae2_utilix.me_channel_caller.tooltip.unbound=Unbound channel
 ae2_utilix.me_channel_caller.bind.created=Created and bound the channel.
 ae2_utilix.me_channel_caller.bind.pasted=Bound the channel to this block.
+ae2_utilix.me_channel_caller.bind.copied=Copied the channel from this block to the item.
 ae2_utilix.me_channel_caller.bind.occupied=This ME Channel Caller is already bound.
 ae2_utilix.me_channel_caller.memory.saved=Copied ME Channel Caller settings to the memory card.
 ae2_utilix.me_channel_caller.memory.loaded=Overwrote ME Channel Caller settings from the memory card.

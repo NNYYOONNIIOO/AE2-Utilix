@@ -59,6 +59,7 @@ item.ae2_utilix.me_channel_caller.tooltip.id=频道UUID：%s
 item.ae2_utilix.me_channel_caller.tooltip.unbound=未绑定频道
 ae2_utilix.me_channel_caller.bind.created=已创建并绑定频道。
 ae2_utilix.me_channel_caller.bind.pasted=已将频道绑定到方块。
+ae2_utilix.me_channel_caller.bind.copied=已将此方块的频道复制到物品中。
 ae2_utilix.me_channel_caller.bind.occupied=此ME频道呼喊器已绑定。
 ae2_utilix.me_channel_caller.memory.saved=已将ME频道呼喊器设置复制到内存卡。
 ae2_utilix.me_channel_caller.memory.loaded=已从内存卡覆盖ME频道呼喊器设置。

@@ -97,6 +97,11 @@ public class TileMEChannelCaller extends AENetworkTile {
         UUID blockId = channelId;
         UUID itemId = ItemMEChannelCaller.getChannelId(held);
         if (blockId != null) {
+            if (itemId == null) {
+                bindOneHeldItem(player, held, blockId);
+                sendMessage(player, "ae2_utilix.me_channel_caller.bind.copied");
+                return;
+            }
             sendMessage(player, "ae2_utilix.me_channel_caller.bind.occupied");
             return;
         }
