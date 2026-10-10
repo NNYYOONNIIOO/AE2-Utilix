@@ -445,7 +445,14 @@ public abstract class MixinDualityInterface implements IProductReturnHost {
             return effectiveFace != null ? effectiveFace : pushDir.getOpposite();
         }
         EnumFacing phaseFace = ae2utilix$getPhaseCardFace();
-        return phaseFace != null ? phaseFace : pushDir.getOpposite();
+        if (phaseFace == null) return pushDir.getOpposite();
+
+        // A card installed by sneak-right-clicking the interface records the
+        // interface side facing the target. Inventory capabilities, however,
+        // receive the face of the target block itself. Keep cards marked on a
+        // target block usable as well by only reversing the adjacent target
+        // direction.
+        return phaseFace == pushDir ? phaseFace.getOpposite() : phaseFace;
     }
 
     @Shadow(remap = false)
