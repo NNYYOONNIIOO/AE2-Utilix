@@ -314,6 +314,18 @@ public final class MEChannelCallerNetwork {
         if (caller == null || caller.getWorld() == null || caller.getPos() == null) {
             return null;
         }
+
+        // The caller is itself an AE2 network host.  Prefer its own node so
+        // that a cable attached directly to the block supplies power and the
+        // bridge is anchored to the node the cable actually discovered.
+        IGridNode callerNode = caller.getGridNode(AEPartLocation.INTERNAL);
+        if (callerNode != null && callerNode.getGrid() != null) {
+            return new Endpoint(callerNode, AEPartLocation.INTERNAL,
+                    isController(callerNode));
+        }
+
+        // Keep the old adjacent-endpoint fallback for worlds upgraded from
+        // the first implementation, where the block was not an AE2 host yet.
         World world = caller.getWorld();
         BlockPos origin = caller.getPos();
         for (EnumFacing side : EnumFacing.values()) {

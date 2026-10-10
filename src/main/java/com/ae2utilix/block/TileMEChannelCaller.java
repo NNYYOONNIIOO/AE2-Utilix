@@ -2,7 +2,7 @@ package com.ae2utilix.block;
 
 import appeng.api.implementations.items.IMemoryCard;
 import appeng.api.implementations.items.MemoryCardMessages;
-import appeng.tile.AEBaseTile;
+import appeng.tile.grid.AENetworkTile;
 import com.ae2utilix.AE2Utilix;
 import com.ae2utilix.integration.MEChannelCallerNetwork;
 import com.ae2utilix.item.ItemMEChannelCaller;
@@ -20,7 +20,12 @@ import java.io.IOException;
 import java.util.List;
 import java.util.UUID;
 
-public class TileMEChannelCaller extends AEBaseTile {
+/**
+ * The caller is an actual AE2 network host.  The wireless bridge is managed
+ * separately, but the block itself must still expose a node so an ME cable
+ * can discover it and provide network power.
+ */
+public class TileMEChannelCaller extends AENetworkTile {
     public static final int STATUS_OFF = 0;
     public static final int STATUS_CONNECTED = 1;
     public static final int STATUS_ERROR = 2;
