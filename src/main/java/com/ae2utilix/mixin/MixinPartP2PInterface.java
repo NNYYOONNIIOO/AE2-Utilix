@@ -12,6 +12,7 @@ import appeng.api.storage.data.IAEItemStack;
 import appeng.helpers.IInterfaceHost;
 import appeng.me.GridAccessException;
 import appeng.me.helpers.MachineSource;
+import appeng.util.InventoryAdaptor;
 import appeng.util.Platform;
 import appeng.util.item.AEItemStack;
 import co.neeve.nae2.common.parts.p2p.PartP2PInterface;
@@ -26,7 +27,6 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.world.World;
-import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.items.IItemHandler;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
@@ -275,9 +275,10 @@ public abstract class MixinPartP2PInterface {
                 } else {
                     int toExtract = (int) Math.min(remaining, expected.getDefinition().getMaxStackSize());
                     if (toExtract > 0) {
-                        IItemHandler handler = ae2utilix$findItemHandler(target, extractFace, expected.getDefinition(), toExtract);
-                        if (handler != null) {
-                            ItemStack simulated = ae2utilix$simulateExtractFromHandler(handler, expected.getDefinition(), toExtract);
+                        InventoryAdaptor adaptor = ExtractFaceHelper.findOutputAdaptor(
+                                target, extractFace, expected.getDefinition(), toExtract);
+                        if (adaptor != null) {
+                            ItemStack simulated = adaptor.simulateRemove(toExtract, expected.getDefinition(), null);
                             if (!simulated.isEmpty()) {
                                 IAEItemStack simToInsert = AEItemStack.fromItemStack(simulated);
                                 if (simToInsert != null) {
@@ -285,14 +286,14 @@ public abstract class MixinPartP2PInterface {
                                     long canAccept = simToInsert.getStackSize() - (simNotInserted != null ? simNotInserted.getStackSize() : 0);
                                     if (canAccept > 0) {
                                         int actualExtract = (int) Math.min(canAccept, simulated.getCount());
-                                        ItemStack extracted = ae2utilix$extractFromHandler(handler, expected.getDefinition(), actualExtract);
+                                        ItemStack extracted = adaptor.removeItems(actualExtract, expected.getDefinition(), null);
                                         if (!extracted.isEmpty()) {
                                             IAEItemStack toInsert = AEItemStack.fromItemStack(extracted);
                                             IAEItemStack notInserted = Platform.poweredInsert(energy, dest, toInsert, source);
                                             extractedAmount = extracted.getCount();
                                             if (notInserted != null && notInserted.getStackSize() > 0) {
                                                 extractedAmount -= notInserted.getStackSize();
-                                                ae2utilix$insertToHandler(handler, notInserted.createItemStack());
+                                                adaptor.addItems(notInserted.createItemStack());
                                             }
                                         }
                                     }
@@ -332,31 +333,15 @@ public abstract class MixinPartP2PInterface {
     }
 
     @Unique
-    @Nullable
-    private IItemHandler ae2utilix$findItemHandler(TileEntity target, EnumFacing primaryFace, ItemStack expectedItem, int amount) {
-        EnumFacing face = ExtractFaceHelper.findOutputFace(target, primaryFace, expectedItem, amount);
-        if (face != null) {
-            return target.getCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, face);
-        }
-
-        IItemHandler nullHandler = target.getCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, null);
-        if (nullHandler != null && ExtractFaceHelper.canSimulateExtract(nullHandler, expectedItem, amount)) {
-            return nullHandler;
-        }
-
-        return null;
-    }
-
-    @Unique
     private boolean ae2utilix$extractAnyItems(TileEntity target, IMEInventory<IAEItemStack> dest, IEnergySource energy, IActionSource source) {
         for (EnumFacing face : EnumFacing.values()) {
-            IItemHandler handler = target.getCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, face);
+            IItemHandler handler = ExtractFaceHelper.getItemHandler(target, face);
             if (handler == null) continue;
             boolean didWork = ae2utilix$extractAnyFromHandler(handler, dest, energy, source);
             if (didWork) return true;
         }
 
-        IItemHandler nullHandler = target.getCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, null);
+        IItemHandler nullHandler = ExtractFaceHelper.getItemHandler(target, null);
         if (nullHandler != null) {
             return ae2utilix$extractAnyFromHandler(nullHandler, dest, energy, source);
         }
@@ -462,51 +447,6 @@ public abstract class MixinPartP2PInterface {
     private boolean ae2utilix$extractGases(TileEntity te, EnumFacing extractFace,
                                            IMEInventory<IAEItemStack> dest, IEnergySource energy, IActionSource source) {
         return MekanismGasHandler.extractAllGases(te, extractFace, dest, energy, source);
-    }
-
-    @Unique
-    private ItemStack ae2utilix$simulateExtractFromHandler(IItemHandler handler, ItemStack expectedItem, int amount) {
-        int total = 0;
-        int remaining = amount;
-
-        for (int i = 0; i < handler.getSlots() && remaining > 0; i++) {
-            ItemStack slotStack = handler.getStackInSlot(i);
-            if (!slotStack.isEmpty() && slotStack.isItemEqual(expectedItem) && ItemStack.areItemStackTagsEqual(slotStack, expectedItem)) {
-                ItemStack simulated = handler.extractItem(i, remaining, true);
-                if (!simulated.isEmpty()) {
-                    total += simulated.getCount();
-                    remaining -= simulated.getCount();
-                }
-            }
-        }
-
-        if (total <= 0) return ItemStack.EMPTY;
-        ItemStack result = expectedItem.copy();
-        result.setCount(total);
-        return result;
-    }
-
-    @Unique
-    private ItemStack ae2utilix$extractFromHandler(IItemHandler handler, ItemStack expectedItem, int amount) {
-        ItemStack result = ItemStack.EMPTY;
-        int remaining = amount;
-
-        for (int i = 0; i < handler.getSlots() && remaining > 0; i++) {
-            ItemStack slotStack = handler.getStackInSlot(i);
-            if (!slotStack.isEmpty() && slotStack.isItemEqual(expectedItem) && ItemStack.areItemStackTagsEqual(slotStack, expectedItem)) {
-                ItemStack extracted = handler.extractItem(i, remaining, false);
-                if (!extracted.isEmpty()) {
-                    if (result.isEmpty()) {
-                        result = extracted;
-                    } else {
-                        result.grow(extracted.getCount());
-                    }
-                    remaining -= extracted.getCount();
-                }
-            }
-        }
-
-        return result;
     }
 
     @Unique

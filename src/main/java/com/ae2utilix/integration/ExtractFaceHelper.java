@@ -1,76 +1,82 @@
 package com.ae2utilix.integration;
 
+import appeng.util.InventoryAdaptor;
+import appeng.util.inv.AdaptorItemHandler;
+import net.minecraft.inventory.IInventory;
+import net.minecraft.inventory.ISidedInventory;
 import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumFacing;
 import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.items.IItemHandler;
+import net.minecraftforge.items.wrapper.InvWrapper;
+import net.minecraftforge.items.wrapper.SidedInvWrapper;
 
 import javax.annotation.Nullable;
 
 public class ExtractFaceHelper {
 
     @Nullable
-    public static EnumFacing findOutputFace(TileEntity te, EnumFacing primaryFace, ItemStack expectedItem, int amount) {
-        IItemHandler primaryHandler = te.getCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, primaryFace);
-        if (primaryHandler != null && canSimulateExtract(primaryHandler, expectedItem, amount)
-                && !hasNonExpectedExtractable(primaryHandler, expectedItem)) {
-            return primaryFace;
-        }
+    public static IItemHandler getItemHandler(TileEntity te, @Nullable EnumFacing face) {
+        if (te == null) return null;
 
-        EnumFacing fallbackFace = null;
-
-        for (EnumFacing face : EnumFacing.values()) {
-            if (face == primaryFace) continue;
+        if (te.hasCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, face)) {
             IItemHandler handler = te.getCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, face);
-            if (handler == null) continue;
-
-            if (!canSimulateExtract(handler, expectedItem, amount)) continue;
-
-            if (!hasNonExpectedExtractable(handler, expectedItem)) {
-                return face;
-            }
-
-            if (fallbackFace == null) {
-                fallbackFace = face;
-            }
+            if (handler != null) return handler;
         }
 
-        if (fallbackFace != null) {
-            return fallbackFace;
-        }
+        IItemHandler handler = te.getCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, face);
+        if (handler != null) return handler;
 
-        IItemHandler nullHandler = te.getCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, null);
-        if (nullHandler != null && canSimulateExtract(nullHandler, expectedItem, amount)) {
-            return null;
+        if (face != null && te instanceof ISidedInventory) {
+            return new SidedInvWrapper((ISidedInventory) te, face);
+        }
+        if (te instanceof IInventory) {
+            return new InvWrapper((IInventory) te);
         }
 
         return null;
     }
 
-    public static boolean hasNonExpectedExtractable(IItemHandler handler, ItemStack expectedItem) {
-        for (int i = 0; i < handler.getSlots(); i++) {
-            ItemStack slotStack = handler.getStackInSlot(i);
-            if (slotStack.isEmpty()) continue;
-            if (slotStack.isItemEqual(expectedItem) && ItemStack.areItemStackTagsEqual(slotStack, expectedItem)) continue;
-            ItemStack simulated = handler.extractItem(i, 1, true);
-            if (!simulated.isEmpty()) {
-                return true;
-            }
-        }
-        return false;
+    @Nullable
+    public static InventoryAdaptor getInventoryAdaptor(TileEntity te, @Nullable EnumFacing face) {
+        if (te == null) return null;
+
+        InventoryAdaptor adaptor = InventoryAdaptor.getAdaptor(te, face);
+        if (adaptor != null) return adaptor;
+
+        IItemHandler handler = getItemHandler(te, face);
+        return handler == null ? null : new AdaptorItemHandler(handler);
     }
 
-    public static boolean canSimulateExtract(IItemHandler handler, ItemStack expectedItem, int amount) {
-        for (int i = 0; i < handler.getSlots(); i++) {
-            ItemStack slotStack = handler.getStackInSlot(i);
-            if (!slotStack.isEmpty() && slotStack.isItemEqual(expectedItem) && ItemStack.areItemStackTagsEqual(slotStack, expectedItem)) {
-                ItemStack simulated = handler.extractItem(i, amount, true);
-                if (!simulated.isEmpty()) {
-                    return true;
-                }
+    @Nullable
+    public static InventoryAdaptor findOutputAdaptor(TileEntity te, EnumFacing primaryFace,
+                                                     ItemStack expectedItem, int amount) {
+        InventoryAdaptor primaryAdaptor = getInventoryAdaptor(te, primaryFace);
+        if (primaryAdaptor != null && canSimulateExtract(primaryAdaptor, expectedItem, amount)) {
+            return primaryAdaptor;
+        }
+
+        for (EnumFacing face : EnumFacing.values()) {
+            if (face == primaryFace) continue;
+
+            InventoryAdaptor adaptor = getInventoryAdaptor(te, face);
+            if (adaptor != null && canSimulateExtract(adaptor, expectedItem, amount)) {
+                return adaptor;
             }
         }
-        return false;
+
+        InventoryAdaptor nullAdaptor = getInventoryAdaptor(te, null);
+        if (nullAdaptor != null && canSimulateExtract(nullAdaptor, expectedItem, amount)) {
+            return nullAdaptor;
+        }
+
+        return null;
+    }
+
+    public static boolean canSimulateExtract(InventoryAdaptor adaptor, ItemStack expectedItem, int amount) {
+        if (adaptor == null || amount <= 0) return false;
+        ItemStack simulated = adaptor.simulateRemove(amount, expectedItem, null);
+        return simulated != null && !simulated.isEmpty();
     }
 }

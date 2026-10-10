@@ -43,7 +43,6 @@ import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import net.minecraftforge.fluids.FluidStack;
-import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.items.IItemHandler;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -715,19 +714,17 @@ public abstract class MixinDualityInterface implements IProductReturnHost {
                     } else {
                         int toExtract = (int) Math.min(remaining, expected.getDefinition().getMaxStackSize());
                         if (toExtract > 0) {
-                            EnumFacing itemExtractFace = ae2utilix$findOutputFace(te, extractFace, expected.getDefinition(), toExtract);
-                            if (itemExtractFace != null) {
-                                IItemHandler handler = te.getCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, itemExtractFace);
-                                if (handler != null) {
-                                    ItemStack extracted = ae2utilix$extractFromHandler(handler, expected.getDefinition(), toExtract);
-                                    if (!extracted.isEmpty()) {
-                                        IAEItemStack toInsert = AEItemStack.fromItemStack(extracted);
-                                        IAEItemStack notInserted = Platform.poweredInsert(energy, dest, toInsert, this.interfaceRequestSource);
-                                        extractedAmount = extracted.getCount();
-                                        if (notInserted != null && notInserted.getStackSize() > 0) {
-                                            extractedAmount -= notInserted.getStackSize();
-                                            ae2utilix$insertToHandler(handler, notInserted.createItemStack());
-                                        }
+                            InventoryAdaptor adaptor = ExtractFaceHelper.findOutputAdaptor(
+                                    te, extractFace, expected.getDefinition(), toExtract);
+                            if (adaptor != null) {
+                                ItemStack extracted = adaptor.removeItems(toExtract, expected.getDefinition(), null);
+                                if (!extracted.isEmpty()) {
+                                    IAEItemStack toInsert = AEItemStack.fromItemStack(extracted);
+                                    IAEItemStack notInserted = Platform.poweredInsert(energy, dest, toInsert, this.interfaceRequestSource);
+                                    extractedAmount = extracted.getCount();
+                                    if (notInserted != null && notInserted.getStackSize() > 0) {
+                                        extractedAmount -= notInserted.getStackSize();
+                                        adaptor.addItems(notInserted.createItemStack());
                                     }
                                 }
                             }
@@ -798,19 +795,17 @@ public abstract class MixinDualityInterface implements IProductReturnHost {
                 } else {
                     int toExtract = (int) Math.min(remaining, expected.getDefinition().getMaxStackSize());
                     if (toExtract > 0) {
-                        EnumFacing itemExtractFace = ae2utilix$findOutputFace(te, extractFace, expected.getDefinition(), toExtract);
-                        if (itemExtractFace != null) {
-                            IItemHandler handler = te.getCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, itemExtractFace);
-                            if (handler != null) {
-                                ItemStack extracted = ae2utilix$extractFromHandler(handler, expected.getDefinition(), toExtract);
-                                if (!extracted.isEmpty()) {
-                                    IAEItemStack toInsert = AEItemStack.fromItemStack(extracted);
-                                    IAEItemStack notInserted = Platform.poweredInsert(energy, dest, toInsert, this.interfaceRequestSource);
-                                    extractedAmount = extracted.getCount();
-                                    if (notInserted != null && notInserted.getStackSize() > 0) {
-                                        extractedAmount -= notInserted.getStackSize();
-                                        ae2utilix$insertToHandler(handler, notInserted.createItemStack());
-                                    }
+                        InventoryAdaptor adaptor = ExtractFaceHelper.findOutputAdaptor(
+                                te, extractFace, expected.getDefinition(), toExtract);
+                        if (adaptor != null) {
+                            ItemStack extracted = adaptor.removeItems(toExtract, expected.getDefinition(), null);
+                            if (!extracted.isEmpty()) {
+                                IAEItemStack toInsert = AEItemStack.fromItemStack(extracted);
+                                IAEItemStack notInserted = Platform.poweredInsert(energy, dest, toInsert, this.interfaceRequestSource);
+                                extractedAmount = extracted.getCount();
+                                if (notInserted != null && notInserted.getStackSize() > 0) {
+                                    extractedAmount -= notInserted.getStackSize();
+                                    adaptor.addItems(notInserted.createItemStack());
                                 }
                             }
                         }
@@ -836,45 +831,6 @@ public abstract class MixinDualityInterface implements IProductReturnHost {
         }
 
         return didWork;
-    }
-
-    @Unique
-    private EnumFacing ae2utilix$findOutputFace(TileEntity te, EnumFacing primaryFace, ItemStack expectedItem, int amount) {
-        return ExtractFaceHelper.findOutputFace(te, primaryFace, expectedItem, amount);
-    }
-
-    @Unique
-    private ItemStack ae2utilix$extractFromHandler(IItemHandler handler, ItemStack expectedItem, int amount) {
-        ItemStack result = ItemStack.EMPTY;
-        int remaining = amount;
-
-        for (int i = 0; i < handler.getSlots() && remaining > 0; i++) {
-            ItemStack slotStack = handler.getStackInSlot(i);
-            if (!slotStack.isEmpty() && slotStack.isItemEqual(expectedItem) && ItemStack.areItemStackTagsEqual(slotStack, expectedItem)) {
-                ItemStack extracted = handler.extractItem(i, remaining, false);
-                if (!extracted.isEmpty()) {
-                    if (result.isEmpty()) {
-                        result = extracted;
-                    } else {
-                        result.grow(extracted.getCount());
-                    }
-                    remaining -= extracted.getCount();
-                }
-            }
-        }
-
-        return result;
-    }
-
-    @Unique
-    private void ae2utilix$insertToHandler(IItemHandler handler, ItemStack stack) {
-        if (stack.isEmpty()) return;
-
-        for (int i = 0; i < handler.getSlots(); i++) {
-            ItemStack leftover = handler.insertItem(i, stack, false);
-            if (leftover.isEmpty()) return;
-            stack = leftover;
-        }
     }
 
     @Inject(method = "writeToNBT", at = @At("TAIL"), remap = false, require = 0)
