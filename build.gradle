@@ -64,6 +64,7 @@ repositories {
 dependencies {
     minecraft 'net.minecraftforge:forge:1.12.2-14.23.5.2859'
     implementation fg.deobf("curse.maven:ae2-extended-life-570458:6302098")
+    implementation fg.deobf("curse.maven:the-one-probe-community-edition-885670:8896757")
     compileOnly fg.deobf("curse.maven:mekanism-ce-399904:4804509")
     compileOnly fg.deobf("curse.maven:mekanism-energistics-1027681:5775101")
     compileOnly fg.deobf("curse.maven:thaumcraft-223628:2629023")

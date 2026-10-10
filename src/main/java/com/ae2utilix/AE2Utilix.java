@@ -3,13 +3,16 @@ package com.ae2utilix;
 import com.ae2utilix.block.BlockCrystalGrowthChamber;
 import com.ae2utilix.block.BlockPhaseInterface;
 import com.ae2utilix.block.BlockCommonInterfaceAlternate;
+import com.ae2utilix.block.BlockMEChannelCaller;
 import com.ae2utilix.block.TileCrystalGrowthChamber;
+import com.ae2utilix.block.TileMEChannelCaller;
 import com.ae2utilix.block.TilePhaseInterface;
 import com.ae2utilix.block.TileCommonInterfaceAlternate;
 import com.ae2utilix.block.terminal.*;
 import com.ae2utilix.gui.FullTerminalGuiHandler;
 import com.ae2utilix.integration.FluidReturnHandler;
 import com.ae2utilix.integration.GasReturnHandler;
+import com.ae2utilix.integration.MEChannelCallerNetwork;
 import com.ae2utilix.recipe.CrystalGrowthRecipes;
 import net.minecraftforge.fml.common.Loader;
 import com.ae2utilix.item.ItemCouplingStaff;
@@ -49,7 +52,7 @@ import appeng.tile.AEBaseTile;
 import org.apache.logging.log4j.Logger;
 
 @Mod(modid = AE2Utilix.MODID, name = AE2Utilix.NAME, version = AE2Utilix.VERSION,
-        dependencies = "required-after:appliedenergistics2;after:mekeng")
+        dependencies = "required-after:appliedenergistics2;after:mekeng;after:theoneprobe")
 public class AE2Utilix implements IGuiHandler {
     public static final String MODID = "ae2_utilix";
     public static final String NAME = "AE2\u5B9E\u7528\u5668\u68B0";
@@ -97,6 +100,7 @@ public class AE2Utilix implements IGuiHandler {
     public static final BlockPhaseInterface BLOCK_PHASE_INTERFACE = new BlockPhaseInterface();
     public static final BlockCommonInterfaceAlternate BLOCK_COMMON_INTERFACE_ALTERNATE = new BlockCommonInterfaceAlternate();
     public static final BlockCrystalGrowthChamber BLOCK_CRYSTAL_GROWTH_CHAMBER = new BlockCrystalGrowthChamber();
+    public static final BlockMEChannelCaller BLOCK_ME_CHANNEL_CALLER = new BlockMEChannelCaller();
 
     public static final BlockStorageTerminal BLOCK_STORAGE_TERMINAL = new BlockStorageTerminal();
     public static final BlockCraftingTerminal BLOCK_CRAFTING_TERMINAL = new BlockCraftingTerminal();
@@ -113,6 +117,12 @@ public class AE2Utilix implements IGuiHandler {
         AE2UtilixConfig.load(event.getSuggestedConfigurationFile());
 
         NetworkHandler.register();
+
+        if (AE2UtilixConfig.registerMEChannelCaller && Loader.isModLoaded("theoneprobe")) {
+            net.minecraftforge.fml.common.event.FMLInterModComms.sendFunctionMessage(
+                    "theoneprobe", "getTheOneProbe",
+                    "com.ae2utilix.integration.MEChannelCallerTOPIntegration");
+        }
 
         net.minecraftforge.fml.common.network.NetworkRegistry.INSTANCE.registerGuiHandler(this, this);
 
@@ -141,6 +151,18 @@ public class AE2Utilix implements IGuiHandler {
             itemBlockCGC.setRegistryName(MODID, "crystal_growth_chamber");
             registerBlockAndItem(BLOCK_CRYSTAL_GROWTH_CHAMBER, itemBlockCGC);
             GameRegistry.registerTileEntity(TileCrystalGrowthChamber.class, MODID + ":crystal_growth_chamber");
+        }
+
+        if (AE2UtilixConfig.registerMEChannelCaller) {
+            BLOCK_ME_CHANNEL_CALLER.setRegistryName(MODID, "me_channel_caller");
+            BLOCK_ME_CHANNEL_CALLER.setUnlocalizedName(MODID + ".me_channel_caller");
+            com.ae2utilix.item.ItemMEChannelCaller item =
+                    new com.ae2utilix.item.ItemMEChannelCaller(BLOCK_ME_CHANNEL_CALLER);
+            item.setRegistryName(MODID, "me_channel_caller");
+            registerBlockAndItem(BLOCK_ME_CHANNEL_CALLER, item);
+            GameRegistry.registerTileEntity(TileMEChannelCaller.class, MODID + ":me_channel_caller");
+            MinecraftForge.EVENT_BUS.register(MEChannelCallerNetwork.class);
+            MinecraftForge.EVENT_BUS.register(com.ae2utilix.integration.MEChannelCallerMemoryCardHandler.class);
         }
 
         if (AE2UtilixConfig.registerFullTerminals) {

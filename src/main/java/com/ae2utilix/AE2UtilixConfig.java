@@ -31,6 +31,7 @@ public static boolean renderFloatingItem = true;
     public static boolean registerMatterDecomposer = true;
     public static boolean registerFluixResonancePivotCore = true;
     public static boolean registerPackerAndDevicePackage = true;
+    public static boolean registerMEChannelCaller = true;
 
     private static File loadedFile;
 
@@ -92,6 +93,8 @@ public static boolean renderFloatingItem = true;
                     "Register the Fluix Resonance Pivot Core.");
             registerPackerAndDevicePackage = config.getBoolean("registerPackerAndDevicePackage", "registration", true,
                     "Register the Packer and Device Package as a bound item group.");
+            registerMEChannelCaller = config.getBoolean("registerMEChannelCaller", "registration", true,
+                    "Register the ME Channel Caller and its linked channel support.");
         } finally {
             if (config.hasChanged()) {
                 config.save();

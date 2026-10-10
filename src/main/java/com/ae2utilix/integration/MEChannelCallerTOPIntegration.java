@@ -1,0 +1,70 @@
+package com.ae2utilix.integration;
+
+import com.ae2utilix.AE2Utilix;
+import com.ae2utilix.block.BlockMEChannelCaller;
+import com.ae2utilix.block.TileMEChannelCaller;
+import mcjty.theoneprobe.api.IProbeHitData;
+import mcjty.theoneprobe.api.IProbeInfo;
+import mcjty.theoneprobe.api.IProbeInfoProvider;
+import mcjty.theoneprobe.api.ITheOneProbe;
+import mcjty.theoneprobe.api.ProbeMode;
+import net.minecraft.block.state.IBlockState;
+import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.tileentity.TileEntity;
+import net.minecraft.util.text.TextComponentTranslation;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.world.World;
+
+import javax.annotation.Nullable;
+import java.util.UUID;
+import java.util.function.Function;
+
+/** Optional TOP provider registered through the standard IMC callback. */
+public class MEChannelCallerTOPIntegration implements Function<ITheOneProbe, Void>, IProbeInfoProvider {
+    @Override
+    public Void apply(@Nullable ITheOneProbe probe) {
+        if (probe != null) probe.registerProvider(this);
+        return null;
+    }
+
+    @Override
+    public String getID() {
+        return AE2Utilix.MODID + ":me_channel_caller";
+    }
+
+    @Override
+    public void addProbeInfo(ProbeMode mode, IProbeInfo probeInfo, EntityPlayer player, World world,
+                             IBlockState blockState, IProbeHitData data) {
+        if (!(blockState.getBlock() instanceof BlockMEChannelCaller)) return;
+        BlockPos pos = data.getPos();
+        TileEntity tile = world.getTileEntity(pos);
+        if (!(tile instanceof TileMEChannelCaller)) return;
+        TileMEChannelCaller caller = (TileMEChannelCaller) tile;
+        UUID id = caller.getChannelId();
+        if (id == null) {
+            probeInfo.text(new TextComponentTranslation(
+                    "ae2_utilix.me_channel_caller.status.missing"));
+            return;
+        }
+        probeInfo.text(new TextComponentTranslation(
+                "item.ae2_utilix.me_channel_caller.tooltip.id", id));
+        if (caller.getStatus() == TileMEChannelCaller.STATUS_CONNECTED) {
+            probeInfo.text(new TextComponentTranslation(
+                    "ae2_utilix.me_channel_caller.status.connected"));
+        } else if (caller.getStatus() == TileMEChannelCaller.STATUS_OFF) {
+            probeInfo.text(new TextComponentTranslation(
+                    "ae2_utilix.me_channel_caller.status.off"));
+        } else if (caller.getStatusReason() == TileMEChannelCaller.REASON_OVERLOADED) {
+            probeInfo.text(new TextComponentTranslation(
+                    "ae2_utilix.me_channel_caller.status.overloaded",
+                    caller.getRemoteChannels(),
+                    appeng.core.AEConfig.instance().getDenseChannelCapacity()));
+        } else if (caller.getStatusReason() == TileMEChannelCaller.REASON_AMBIGUOUS) {
+            probeInfo.text(new TextComponentTranslation(
+                    "ae2_utilix.me_channel_caller.status.ambiguous"));
+        } else {
+            probeInfo.text(new TextComponentTranslation(
+                    "ae2_utilix.me_channel_caller.status.missing"));
+        }
+    }
+}
