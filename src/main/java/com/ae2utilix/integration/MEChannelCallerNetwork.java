@@ -6,21 +6,16 @@ import appeng.api.networking.IGridConnection;
 import appeng.api.networking.IGridHost;
 import appeng.api.networking.IGridNode;
 import appeng.api.networking.energy.IEnergyGrid;
-import appeng.api.parts.IPart;
-import appeng.api.parts.IPartHost;
 import appeng.api.util.AECableType;
 import appeng.api.util.AEPartLocation;
 import appeng.api.util.DimensionalCoord;
 import appeng.me.GridConnection;
 import appeng.me.helpers.AENetworkProxy;
 import appeng.me.helpers.IGridProxyable;
-import appeng.tile.networking.TileCableBus;
 import com.ae2utilix.AE2Utilix;
 import com.ae2utilix.block.TileMEChannelCaller;
 import net.minecraft.item.ItemStack;
-import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumFacing;
-import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
@@ -49,6 +44,10 @@ import java.util.WeakHashMap;
  */
 public final class MEChannelCallerNetwork {
     private static final long REFRESH_INTERVAL = 10L;
+    private static final EnumFacing[] CHANNEL_DIRECTION_ORDER = {
+            EnumFacing.EAST, EnumFacing.UP, EnumFacing.SOUTH,
+            EnumFacing.WEST, EnumFacing.DOWN, EnumFacing.NORTH
+    };
     private static final Map<World, Set<TileMEChannelCaller>> CALLERS =
             new WeakHashMap<>();
     private static final Map<World, Long> NEXT_REFRESH = new WeakHashMap<>();
@@ -299,72 +298,39 @@ public final class MEChannelCallerNetwork {
             return null;
         }
 
-        // The caller is itself an AE2 network host.  Prefer its own node so
-        // that a cable attached directly to the block supplies power and the
-        // bridge is anchored to the node the cable actually discovered.
-        IGridNode callerNode = caller.getGridNode(AEPartLocation.INTERNAL);
-        if (callerNode != null) {
-            return new Endpoint(callerNode, AEPartLocation.INTERNAL,
-                    isController(callerNode));
-        }
-
-        // Keep the old adjacent-endpoint fallback for worlds upgraded from
-        // the first implementation, where the block was not an AE2 host yet.
-        World world = caller.getWorld();
-        BlockPos origin = caller.getPos();
-        for (EnumFacing side : EnumFacing.values()) {
-            BlockPos adjacent = origin.offset(side);
-            TileEntity target = world.getTileEntity(adjacent);
-            Endpoint endpoint = findEndpoint(target, side.getOpposite());
-            if (endpoint != null && endpoint.node.getGrid() != null) {
-                return endpoint;
+        // ChannelSparkNetwork discovers endpoints from the target IGridHost
+        // itself, in a stable face order. The caller is that host; do not
+        // substitute a cable/controller found by walking its connections.
+        IGridHost host = caller;
+        for (EnumFacing facing : CHANNEL_DIRECTION_ORDER) {
+            AEPartLocation direction = AEPartLocation.fromFacing(facing);
+            IGridNode node;
+            try {
+                node = host.getGridNode(direction);
+            } catch (Throwable ignored) {
+                continue;
+            }
+            if (isUsableEndpoint(node)) {
+                return new Endpoint(node);
             }
         }
-        return null;
-    }
 
-    @Nullable
-    private static Endpoint findEndpoint(@Nullable TileEntity target, EnumFacing targetSide) {
-        if (target == null) {
+        IGridNode internal;
+        try {
+            internal = host.getGridNode(AEPartLocation.INTERNAL);
+        } catch (Throwable ignored) {
             return null;
         }
-        AEPartLocation side = AEPartLocation.fromFacing(targetSide);
-
-        if (target instanceof IPartHost) {
-            IPart part = ((IPartHost) target).getPart(targetSide);
-            if (part != null) {
-                IGridNode node = part.getExternalFacingNode();
-                if (node == null) node = part.getGridNode();
-                if (node != null && node.getGrid() != null) {
-                    return new Endpoint(node, side, isController(node));
-                }
-            }
-        }
-
-        if (target instanceof TileCableBus) {
-            TileCableBus cable = (TileCableBus) target;
-            IGridNode node = cable.getGridNode(side);
-            if (node == null) node = cable.getGridNode(AEPartLocation.INTERNAL);
-            if (node != null && node.getGrid() != null) {
-                return new Endpoint(node, side, false);
-            }
-        }
-
-        if (target instanceof IGridHost) {
-            IGridHost host = (IGridHost) target;
-            IGridNode node = host.getGridNode(side);
-            if (node == null) node = host.getGridNode(AEPartLocation.INTERNAL);
-            if (node != null && node.getGrid() != null) {
-                return new Endpoint(node, side, isController(node));
-            }
-        }
-        return null;
+        return isUsableEndpoint(internal)
+                ? new Endpoint(internal) : null;
     }
 
-    private static boolean isController(IGridNode node) {
+    private static boolean isUsableEndpoint(@Nullable IGridNode node) {
+        if (node == null) {
+            return false;
+        }
         try {
-            return node.hasFlag(GridFlags.DENSE_CAPACITY)
-                    && node.hasFlag(GridFlags.CANNOT_CARRY);
+            return node.getGrid() != null;
         } catch (Throwable ignored) {
             return false;
         }
@@ -470,13 +436,9 @@ public final class MEChannelCallerNetwork {
 
     private static final class Endpoint {
         private final IGridNode node;
-        private final AEPartLocation direction;
-        private final boolean controller;
 
-        private Endpoint(IGridNode node, AEPartLocation direction, boolean controller) {
+        private Endpoint(IGridNode node) {
             this.node = node;
-            this.direction = direction;
-            this.controller = controller;
         }
     }
 
@@ -680,13 +642,9 @@ public final class MEChannelCallerNetwork {
             this.endpoint = endpoint;
             DimensionalCoord location = new DimensionalCoord(caller.getWorld(), caller.getPos());
             EnumSet<EnumFacing> validSides = EnumSet.noneOf(EnumFacing.class);
-            if (endpoint.controller && endpoint.direction != null
-                    && endpoint.direction.getFacing() != null) {
-                validSides.add(endpoint.direction.getFacing().getOpposite());
-            }
             ProxyHost channelHost = new ProxyHost(location, validSides);
             channelProxy = new AENetworkProxy(channelHost,
-                    "me_channel_caller_channel_" + caller.getPos(), ItemStack.EMPTY, endpoint.controller);
+                    "me_channel_caller_channel_" + caller.getPos(), ItemStack.EMPTY, false);
             channelHost.setProxy(channelProxy);
             channelProxy.setFlags(GridFlags.REQUIRE_CHANNEL, GridFlags.COMPRESSED_CHANNEL);
             channelProxy.setValidSides(validSides);
@@ -710,8 +668,10 @@ public final class MEChannelCallerNetwork {
             if (endpoint.node == null || channelNode == null || outerNode == null) {
                 return false;
             }
-            IGridConnection channelConnection = connect(endpoint.node, channelNode, endpoint.direction);
-            IGridConnection outerConnection = connect(endpoint.node, outerNode, endpoint.direction);
+            IGridConnection channelConnection = connect(endpoint.node, channelNode,
+                    AEPartLocation.INTERNAL);
+            IGridConnection outerConnection = connect(endpoint.node, outerNode,
+                    AEPartLocation.INTERNAL);
             if (channelConnection == null || outerConnection == null) {
                 return false;
             }
