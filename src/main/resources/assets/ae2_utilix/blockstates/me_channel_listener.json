@@ -1,7 +1,0 @@
-{
-  "variants": {
-    "status=0": { "model": "ae2_utilix:me_channel_listener_off" },
-    "status=1": { "model": "ae2_utilix:me_channel_listener_on" },
-    "status=2": { "model": "ae2_utilix:me_channel_listener_error" }
-  }
-}

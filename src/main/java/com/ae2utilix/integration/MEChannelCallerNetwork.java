@@ -879,6 +879,7 @@ public final class MEChannelCallerNetwork {
             this.endpoint = endpoint;
             DimensionalCoord location = new DimensionalCoord(caller.getWorld(), caller.getPos());
             EnumSet<EnumFacing> noSides = EnumSet.noneOf(EnumFacing.class);
+            EnumSet<EnumFacing> outerSides = getOuterProxySides(endpoint);
             ProxyHost channelHost = new ProxyHost(location, noSides);
             channelProxy = new AENetworkProxy(channelHost,
                     proxyName("me_channel_caller_channel", caller, suffix),
@@ -887,14 +888,18 @@ public final class MEChannelCallerNetwork {
             channelProxy.setFlags(GridFlags.REQUIRE_CHANNEL, GridFlags.COMPRESSED_CHANNEL);
             channelProxy.setValidSides(noSides);
 
-            ProxyHost outerHost = new ProxyHost(location, noSides);
+            // The outer node is the equivalent of AE2's P2P outerProxy.  It
+            // must be world-accessible on the side facing the adjacent AE2
+            // host; leaving its side set empty makes onReady() create an
+            // isolated node that can never join the endpoint grid.
+            ProxyHost outerHost = new ProxyHost(location, outerSides);
             outerProxy = new AENetworkProxy(outerHost,
                     proxyName("me_channel_caller_outer", caller, suffix),
                     ItemStack.EMPTY, true);
             outerHost.setProxy(outerProxy);
             outerProxy.setFlags(GridFlags.DENSE_CAPACITY,
                     GridFlags.CANNOT_CARRY_COMPRESSED);
-            outerProxy.setValidSides(noSides);
+            outerProxy.setValidSides(outerSides);
             channelProxy.onReady();
             outerProxy.onReady();
             channelNode = channelProxy.getNode();
@@ -910,17 +915,44 @@ public final class MEChannelCallerNetwork {
             }
             AEPartLocation channelDirection = endpoint.cable
                     ? endpoint.direction : AEPartLocation.INTERNAL;
-            AEPartLocation outerDirection = endpoint.direction == null
-                    ? AEPartLocation.INTERNAL : endpoint.direction;
+            AEPartLocation outerDirection = endpoint.cable && endpoint.direction != null
+                    ? endpoint.direction : AEPartLocation.INTERNAL;
             IGridConnection channelConnection = connect(endpoint.node, channelNode,
                     channelDirection);
-            IGridConnection outerConnection = connect(endpoint.node, outerNode, outerDirection);
-            if (channelConnection == null || outerConnection == null) {
+            if (channelConnection == null || !sameGrid(endpoint.node, channelNode)) {
                 return false;
             }
-            connections.add(channelConnection);
-            if (outerConnection != channelConnection) connections.add(outerConnection);
+
+            // onReady() normally discovers the adjacent cable through the
+            // outer proxy's valid side.  A controller or a non-cable host has
+            // no such world-facing connection, so retain the explicit
+            // fallback used by the old implementation.
+            if (!sameGrid(endpoint.node, outerNode)) {
+                IGridConnection outerConnection = connect(endpoint.node, outerNode,
+                        outerDirection);
+                if (outerConnection == null) {
+                    return false;
+                }
+                if (outerConnection != channelConnection
+                        && !connections.contains(outerConnection)) {
+                    connections.add(outerConnection);
+                }
+            }
+            if (!connections.contains(channelConnection)) {
+                connections.add(channelConnection);
+            }
             return sameGrid(endpoint.node, channelNode) && sameGrid(endpoint.node, outerNode);
+        }
+
+        private static EnumSet<EnumFacing> getOuterProxySides(@Nullable Endpoint endpoint) {
+            if (endpoint == null || endpoint.direction == null
+                    || endpoint.direction.getFacing() == null) {
+                return EnumSet.noneOf(EnumFacing.class);
+            }
+            // Endpoint.direction is the face on the adjacent block pointing
+            // back at the caller.  The synthetic world node is located at the
+            // caller, so its world-facing side is the opposite face.
+            return EnumSet.of(endpoint.direction.getFacing().getOpposite());
         }
 
         private boolean isAlive() {

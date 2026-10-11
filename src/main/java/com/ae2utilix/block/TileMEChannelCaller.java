@@ -38,6 +38,7 @@ public class TileMEChannelCaller extends AENetworkTile {
     private static final String NBT_STATUS = "Status";
     private static final String NBT_STATUS_REASON = "StatusReason";
     private static final String NBT_REMOTE_CHANNELS = "RemoteChannels";
+    private static final String NBT_LISTENER_MODE = "ListenerMode";
     private static final String MEMORY_SETTINGS = "ae2_utilix.me_channel_caller";
 
     @Nullable
@@ -45,6 +46,7 @@ public class TileMEChannelCaller extends AENetworkTile {
     private int status = STATUS_OFF;
     private int statusReason = REASON_NONE;
     private int remoteChannels;
+    private boolean listenerMode;
 
     @Nullable
     public UUID getChannelId() {
@@ -74,11 +76,24 @@ public class TileMEChannelCaller extends AENetworkTile {
     }
 
     public boolean isListener() {
-        return false;
+        return listenerMode;
     }
 
     public String getTranslationPrefix() {
-        return "ae2_utilix.me_channel_caller";
+        return listenerMode ? "ae2_utilix.me_channel_listener" : "ae2_utilix.me_channel_caller";
+    }
+
+    public void setListenerMode(boolean listenerMode) {
+        if (this.listenerMode == listenerMode) {
+            return;
+        }
+        this.listenerMode = listenerMode;
+        saveChanges();
+        MEChannelCallerNetwork.markDirty(this);
+        if (world != null && !world.isRemote) {
+            IBlockStateUpdater.update(this, status, listenerMode);
+            markForUpdate();
+        }
     }
 
     public void setStatus(int nextStatus) {
@@ -96,7 +111,7 @@ public class TileMEChannelCaller extends AENetworkTile {
         statusReason = reason;
         remoteChannels = channels;
         if (world != null && !world.isRemote) {
-            IBlockStateUpdater.update(this, status);
+            IBlockStateUpdater.update(this, status, listenerMode);
             markForUpdate();
         }
     }
@@ -146,6 +161,7 @@ public class TileMEChannelCaller extends AENetworkTile {
             if (channelId != null) {
                 data.setUniqueId(NBT_CHANNEL_ID, channelId);
             }
+            data.setBoolean(NBT_LISTENER_MODE, listenerMode);
             card.setMemoryCardContents(held, MEMORY_SETTINGS, data);
             card.notifyUser(player, MemoryCardMessages.SETTINGS_SAVED);
             sendRoleMessage(player, "memory.saved");
@@ -159,6 +175,9 @@ public class TileMEChannelCaller extends AENetworkTile {
             return;
         }
         setChannelId(data.getUniqueId(NBT_CHANNEL_ID));
+        if (data.hasKey(NBT_LISTENER_MODE)) {
+            setListenerMode(data.getBoolean(NBT_LISTENER_MODE));
+        }
         card.notifyUser(player, MemoryCardMessages.SETTINGS_LOADED);
         sendRoleMessage(player, "memory.loaded");
     }
@@ -200,6 +219,7 @@ public class TileMEChannelCaller extends AENetworkTile {
         status = data.hasKey(NBT_STATUS) ? data.getInteger(NBT_STATUS) : STATUS_OFF;
         statusReason = data.hasKey(NBT_STATUS_REASON) ? data.getInteger(NBT_STATUS_REASON) : REASON_NONE;
         remoteChannels = data.hasKey(NBT_REMOTE_CHANNELS) ? data.getInteger(NBT_REMOTE_CHANNELS) : 0;
+        listenerMode = data.getBoolean(NBT_LISTENER_MODE);
     }
 
     @Override
@@ -211,6 +231,7 @@ public class TileMEChannelCaller extends AENetworkTile {
         data.setInteger(NBT_STATUS, status);
         data.setInteger(NBT_STATUS_REASON, statusReason);
         data.setInteger(NBT_REMOTE_CHANNELS, remoteChannels);
+        data.setBoolean(NBT_LISTENER_MODE, listenerMode);
         return data;
     }
 
@@ -220,6 +241,7 @@ public class TileMEChannelCaller extends AENetworkTile {
         data.writeByte(status);
         data.writeByte(statusReason);
         data.writeInt(remoteChannels);
+        data.writeBoolean(listenerMode);
     }
 
     @Override
@@ -231,8 +253,10 @@ public class TileMEChannelCaller extends AENetworkTile {
         status = data.readUnsignedByte();
         statusReason = data.readUnsignedByte();
         remoteChannels = data.readInt();
+        boolean oldListenerMode = listenerMode;
+        listenerMode = data.readBoolean();
         return changed || oldStatus != status || oldReason != statusReason
-                || oldRemoteChannels != remoteChannels;
+                || oldRemoteChannels != remoteChannels || oldListenerMode != listenerMode;
     }
 
     @Override
@@ -241,6 +265,7 @@ public class TileMEChannelCaller extends AENetworkTile {
         tag.setInteger(NBT_STATUS, status);
         tag.setInteger(NBT_STATUS_REASON, statusReason);
         tag.setInteger(NBT_REMOTE_CHANNELS, remoteChannels);
+        tag.setBoolean(NBT_LISTENER_MODE, listenerMode);
         return tag;
     }
 
@@ -257,18 +282,24 @@ public class TileMEChannelCaller extends AENetworkTile {
         if (tag.hasKey(NBT_REMOTE_CHANNELS)) {
             remoteChannels = Math.max(0, tag.getInteger(NBT_REMOTE_CHANNELS));
         }
+        if (tag.hasKey(NBT_LISTENER_MODE)) {
+            listenerMode = tag.getBoolean(NBT_LISTENER_MODE);
+        }
     }
 
     /** Keeps the visual state in sync without putting the status in the item NBT. */
     private static final class IBlockStateUpdater {
-        private static void update(TileMEChannelCaller tile, int status) {
+        private static void update(TileMEChannelCaller tile, int status, boolean listenerMode) {
             World world = tile.getWorld();
             BlockPos pos = tile.getPos();
             if (world == null || pos == null) return;
             net.minecraft.block.state.IBlockState state = world.getBlockState(pos);
             if (state.getBlock() instanceof BlockMEChannelCaller
-                    && state.getPropertyKeys().contains(BlockMEChannelCaller.STATUS)) {
-                world.setBlockState(pos, state.withProperty(BlockMEChannelCaller.STATUS, status), 3);
+                    && state.getPropertyKeys().contains(BlockMEChannelCaller.STATUS)
+                    && state.getPropertyKeys().contains(BlockMEChannelCaller.LISTENER_MODE)) {
+                world.setBlockState(pos, state
+                        .withProperty(BlockMEChannelCaller.LISTENER_MODE, listenerMode)
+                        .withProperty(BlockMEChannelCaller.STATUS, status), 3);
             }
         }
     }

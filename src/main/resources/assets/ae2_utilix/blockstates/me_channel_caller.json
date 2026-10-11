@@ -1,7 +1,10 @@
 {
   "variants": {
-    "status=0": { "model": "ae2_utilix:me_channel_caller_off" },
-    "status=1": { "model": "ae2_utilix:me_channel_caller_on" },
-    "status=2": { "model": "ae2_utilix:me_channel_caller_error" }
+    "listener_mode=false,status=0": { "model": "ae2_utilix:me_channel_caller_off" },
+    "listener_mode=false,status=1": { "model": "ae2_utilix:me_channel_caller_on" },
+    "listener_mode=false,status=2": { "model": "ae2_utilix:me_channel_caller_error" },
+    "listener_mode=true,status=0": { "model": "ae2_utilix:me_channel_listener_off" },
+    "listener_mode=true,status=1": { "model": "ae2_utilix:me_channel_listener_on" },
+    "listener_mode=true,status=2": { "model": "ae2_utilix:me_channel_listener_error" }
   }
 }

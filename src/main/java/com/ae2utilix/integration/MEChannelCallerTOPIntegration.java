@@ -41,14 +41,16 @@ public class MEChannelCallerTOPIntegration implements Function<ITheOneProbe, Voi
         if (!(tile instanceof TileMEChannelCaller)) return;
         TileMEChannelCaller caller = (TileMEChannelCaller) tile;
         UUID id = caller.getChannelId();
+        // Keep the UUID as an explicit TOP line.  The mode-specific item
+        // name is supplied by Block#getPickBlock, so it belongs in TOP's
+        // title rather than being duplicated as a status/tooltip line.
         if (id == null) {
             probeInfo.text(new TextComponentTranslation(
-                    caller.getTranslationPrefix() + ".status.missing"));
-            return;
+                    "item.ae2_utilix.me_channel_caller.tooltip.unbound"));
+        } else {
+            probeInfo.text(new TextComponentTranslation(
+                    "item.ae2_utilix.me_channel_caller.tooltip.id", id));
         }
-        probeInfo.text(new TextComponentTranslation(
-                "item." + caller.getTranslationPrefix().substring("ae2_utilix.".length())
-                        + ".tooltip.id", id));
         if (caller.getStatus() == TileMEChannelCaller.STATUS_CONNECTED) {
             probeInfo.text(new TextComponentTranslation(
                     caller.getTranslationPrefix() + ".status.connected"));

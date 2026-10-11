@@ -44,6 +44,13 @@ public class ItemMEChannelCaller extends ItemBlock {
     }
 
     @Override
+    public String getUnlocalizedName(ItemStack stack) {
+        return stack != null && stack.getMetadata() >= 3
+                ? "tile." + AE2Utilix.MODID + ".me_channel_listener"
+                : "tile." + AE2Utilix.MODID + ".me_channel_caller";
+    }
+
+    @Override
     @SideOnly(Side.CLIENT)
     public void addInformation(ItemStack stack, @Nullable World world, List<String> tooltip,
                                ITooltipFlag flag) {

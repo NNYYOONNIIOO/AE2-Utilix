@@ -94,7 +94,7 @@ public static boolean renderFloatingItem = true;
             registerPackerAndDevicePackage = config.getBoolean("registerPackerAndDevicePackage", "registration", true,
                     "Register the Packer and Device Package as a bound item group.");
             registerMEChannelCaller = config.getBoolean("registerMEChannelCaller", "registration", true,
-                    "Register the ME Channel Caller output, ME Channel Listener input, and channel transport support.");
+                    "Register the ME Channel Caller and its switchable channel transport support.");
         } finally {
             if (config.hasChanged()) {
                 config.save();
