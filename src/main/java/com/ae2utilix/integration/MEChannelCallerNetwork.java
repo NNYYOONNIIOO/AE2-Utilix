@@ -6,16 +6,22 @@ import appeng.api.networking.IGridConnection;
 import appeng.api.networking.IGridHost;
 import appeng.api.networking.IGridNode;
 import appeng.api.networking.energy.IEnergyGrid;
+import appeng.api.parts.IPart;
+import appeng.api.parts.IPartHost;
 import appeng.api.util.AECableType;
 import appeng.api.util.AEPartLocation;
 import appeng.api.util.DimensionalCoord;
 import appeng.me.GridConnection;
 import appeng.me.helpers.AENetworkProxy;
 import appeng.me.helpers.IGridProxyable;
+import appeng.tile.networking.TileCableBus;
+import appeng.tile.networking.TileController;
 import com.ae2utilix.AE2Utilix;
 import com.ae2utilix.block.TileMEChannelCaller;
 import net.minecraft.item.ItemStack;
+import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumFacing;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
@@ -205,15 +211,13 @@ public final class MEChannelCallerNetwork {
                 continue;
             }
 
-            // Do not tear down a bridge merely because its own connections
-            // have merged all endpoint nodes into one AE grid. That merge is
-            // the successful result of powering the remote callers.
             if (bridge != null && !bridge.matches(activeCallers, endpoints)) {
                 destroyBridge(key);
                 bridge = null;
             }
 
-            if (bridge == null && !allSameGrid(endpoints)) {
+            boolean alreadyConnected = allSameGrid(endpoints);
+            if (bridge == null && !alreadyConnected) {
                 bridge = CallerBridge.create(activeCallers, endpoints);
                 if (bridge != null) {
                     BRIDGES.put(key, bridge);
@@ -223,14 +227,14 @@ public final class MEChannelCallerNetwork {
             if (bridge != null) {
                 liveBridgeKeys.add(key);
             }
-            boolean connected = allSameGrid(endpoints)
-                    || (bridge != null && bridge.isAlive());
+            boolean connected = alreadyConnected || (bridge != null && bridge.isAlive());
             for (int i = 0; i < activeCallers.size(); i++) {
                 TileMEChannelCaller caller = activeCallers.get(i);
                 Endpoint endpoint = endpoints.get(i);
                 boolean powered = isPowered(endpoint);
-                int channelUsers = countChannelUsers(endpoint.node);
-                boolean overloaded = connected && channelUsers > getTransferCapacity();
+                int transferredChannels = bridge == null ? 0 : bridge.getTransferCount();
+                boolean overloaded = connected
+                        && transferredChannels > getTransferCapacity();
                 caller.setStatus(overloaded ? TileMEChannelCaller.STATUS_ERROR
                                 : connected && powered ? TileMEChannelCaller.STATUS_CONNECTED
                                 : connected ? TileMEChannelCaller.STATUS_OFF
@@ -239,7 +243,7 @@ public final class MEChannelCallerNetwork {
                         overloaded ? TileMEChannelCaller.REASON_OVERLOADED
                                 : connected || !powered ? TileMEChannelCaller.REASON_NONE
                                 : TileMEChannelCaller.REASON_MISSING,
-                        Math.max(0, channelUsers - 1));
+                        transferredChannels);
             }
         }
 
@@ -263,23 +267,6 @@ public final class MEChannelCallerNetwork {
         }
     }
 
-    private static int countChannelUsers(IGridNode node) {
-        if (node == null || node.getGrid() == null) {
-            return 0;
-        }
-        int count = 0;
-        try {
-            for (IGridNode candidate : node.getGrid().getNodes()) {
-                if (candidate != null && candidate.hasFlag(GridFlags.REQUIRE_CHANNEL)
-                        && candidate.meetsChannelRequirements()) {
-                    count++;
-                }
-            }
-        } catch (Throwable ignored) {
-        }
-        return count;
-    }
-
     private static boolean isPowered(@Nullable Endpoint endpoint) {
         if (endpoint == null || endpoint.node == null || endpoint.node.getGrid() == null) {
             return false;
@@ -298,31 +285,86 @@ public final class MEChannelCallerNetwork {
             return null;
         }
 
-        // ChannelSparkNetwork discovers endpoints from the target IGridHost
-        // itself, in a stable face order. The caller is that host; do not
-        // substitute a cable/controller found by walking its connections.
-        IGridHost host = caller;
-        for (EnumFacing facing : CHANNEL_DIRECTION_ORDER) {
-            AEPartLocation direction = AEPartLocation.fromFacing(facing);
-            IGridNode node;
-            try {
-                node = host.getGridNode(direction);
-            } catch (Throwable ignored) {
+        Endpoint first = null;
+        // ChannelSparkNetwork targets the block the spark is physically
+        // attached to. Resolve only directly adjacent blocks, never arbitrary
+        // nodes found elsewhere in the connected AE grid.
+        for (EnumFacing callerSide : CHANNEL_DIRECTION_ORDER) {
+            BlockPos targetPos = caller.getPos().offset(callerSide);
+            TileEntity target = caller.getWorld().getTileEntity(targetPos);
+            Endpoint candidate = findAdjacentEndpoint(target, callerSide.getOpposite());
+            if (candidate == null) {
                 continue;
             }
-            if (isUsableEndpoint(node)) {
-                return new Endpoint(node);
+            if (candidate.controller) {
+                return candidate;
+            }
+            if (first == null) {
+                first = candidate;
+            }
+        }
+        return first;
+    }
+
+    @Nullable
+    private static Endpoint findAdjacentEndpoint(@Nullable TileEntity target,
+                                                 EnumFacing targetSide) {
+        if (target == null) {
+            return null;
+        }
+        AEPartLocation side = AEPartLocation.fromFacing(targetSide);
+
+        if (target instanceof TileCableBus) {
+            TileCableBus cable = (TileCableBus) target;
+            IGridNode node = cable.getGridNode(side);
+            if (node == null) {
+                node = cable.getGridNode(AEPartLocation.INTERNAL);
+            }
+            return isUsableEndpoint(node)
+                    ? new Endpoint(node, false, true, side) : null;
+        }
+
+        if (target instanceof IPartHost) {
+            IPart part = ((IPartHost) target).getPart(targetSide);
+            if (part != null) {
+                IGridNode node = part.getExternalFacingNode();
+                if (node == null) {
+                    node = part.getGridNode();
+                }
+                if (isUsableEndpoint(node)) {
+                    return new Endpoint(node, false, false, side);
+                }
             }
         }
 
-        IGridNode internal;
-        try {
-            internal = host.getGridNode(AEPartLocation.INTERNAL);
-        } catch (Throwable ignored) {
-            return null;
+        if (target instanceof IGridHost) {
+            IGridHost host = (IGridHost) target;
+            boolean controller = target instanceof TileController;
+            IGridNode node;
+            try {
+                node = host.getGridNode(side);
+                if (node == null && !controller) {
+                    node = host.getGridNode(AEPartLocation.INTERNAL);
+                }
+            } catch (Throwable ignored) {
+                return null;
+            }
+            if (controller && !isControllerNode(node)) {
+                return null;
+            }
+            if (isUsableEndpoint(node)) {
+                return new Endpoint(node, controller, false, side);
+            }
         }
-        return isUsableEndpoint(internal)
-                ? new Endpoint(internal) : null;
+        return null;
+    }
+
+    private static boolean isControllerNode(@Nullable IGridNode node) {
+        try {
+            return node != null && node.hasFlag(GridFlags.DENSE_CAPACITY);
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     private static boolean isUsableEndpoint(@Nullable IGridNode node) {
@@ -436,9 +478,16 @@ public final class MEChannelCallerNetwork {
 
     private static final class Endpoint {
         private final IGridNode node;
+        private final boolean controller;
+        private final boolean cable;
+        private final AEPartLocation direction;
 
-        private Endpoint(IGridNode node) {
+        private Endpoint(IGridNode node, boolean controller, boolean cable,
+                         AEPartLocation direction) {
             this.node = node;
+            this.controller = controller;
+            this.cable = cable;
+            this.direction = direction;
         }
     }
 
@@ -491,22 +540,23 @@ public final class MEChannelCallerNetwork {
         }
     }
 
-    /**
-     * One wireless bridge for one UUID.  A channel is a group, so this owns
-     * one proxy pair per caller and joins all outer proxies in a star.  The
-     * first powered local network can therefore bring every other caller in
-     * the group online, including callers that were previously isolated.
-     */
+    /** One AE2 P2P-style channel bridge for all callers sharing a UUID. */
     private static final class CallerBridge {
         private final List<TileMEChannelCaller> callers;
         private final List<Endpoint> endpoints;
-        private final List<BridgeProxy> proxies = new ArrayList<>();
+        private final int sourceIndex;
+        private final ControllerSource controllerSource;
+        private final List<BridgeProxy> sourceProxies = new ArrayList<>();
+        private final List<BridgeProxy> outputProxies = new ArrayList<>();
         private final List<IGridConnection> outerConnections = new ArrayList<>();
 
         private CallerBridge(List<TileMEChannelCaller> callers,
-                             List<Endpoint> endpoints) {
+                             List<Endpoint> endpoints, int sourceIndex,
+                             @Nullable ControllerSource controllerSource) {
             this.callers = new ArrayList<>(callers);
             this.endpoints = new ArrayList<>(endpoints);
+            this.sourceIndex = sourceIndex;
+            this.controllerSource = controllerSource;
         }
 
         @Nullable
@@ -517,35 +567,89 @@ public final class MEChannelCallerNetwork {
                 return null;
             }
 
-            CallerBridge result = new CallerBridge(callers, endpoints);
+            int sourceIndex = selectSourceIndex(callers, endpoints);
+            Endpoint sourceEndpoint = endpoints.get(sourceIndex);
+            ControllerSource controllerSource = sourceEndpoint.controller
+                    ? new ControllerSource(callers.get(sourceIndex), sourceEndpoint.node)
+                    : null;
+            CallerBridge result = new CallerBridge(callers, endpoints, sourceIndex,
+                    controllerSource);
+            if (controllerSource != null && !controllerSource.attach()) {
+                result.destroy();
+                return null;
+            }
+
+            int outputIndex = 0;
             for (int i = 0; i < callers.size(); i++) {
-                BridgeProxy proxy = new BridgeProxy(callers.get(i), endpoints.get(i));
-                result.proxies.add(proxy);
-                if (!proxy.attach()) {
+                if (i == sourceIndex) {
+                    continue;
+                }
+                BridgeProxy output = new BridgeProxy(callers.get(i), endpoints.get(i),
+                        "output_" + outputIndex);
+                result.outputProxies.add(output);
+                if (!output.attachLocal()) {
                     result.destroy();
                     return null;
                 }
-            }
 
-            // Connecting each outer node from a different AE grid to the
-            // first one makes the group topology deterministic and supports
-            // any number of ends. Nodes already on the anchor grid are
-            // already connected transitively and must not receive a second
-            // artificial edge.
-            IGridNode anchor = result.proxies.get(0).outerNode;
-            for (int i = 1; i < result.proxies.size(); i++) {
-                IGridNode remote = result.proxies.get(i).outerNode;
-                if (sameGrid(anchor, remote)) {
-                    continue;
+                IGridNode sourceOuter;
+                if (controllerSource != null) {
+                    sourceOuter = controllerSource.acquireOuterNode();
+                    if (sourceOuter == null) {
+                        result.destroy();
+                        return null;
+                    }
+                } else {
+                    BridgeProxy source = new BridgeProxy(callers.get(sourceIndex),
+                            sourceEndpoint, "source_" + outputIndex);
+                    result.sourceProxies.add(source);
+                    if (!source.attachLocal()) {
+                        result.destroy();
+                        return null;
+                    }
+                    sourceOuter = source.outerNode;
                 }
-                IGridConnection connection = connectOuter(anchor, remote);
+
+                IGridConnection connection = connectOuter(sourceOuter, output.outerNode);
                 if (connection == null) {
                     result.destroy();
                     return null;
                 }
                 result.outerConnections.add(connection);
+                outputIndex++;
             }
             return result;
+        }
+
+        private static int selectSourceIndex(List<TileMEChannelCaller> callers,
+                                             List<Endpoint> endpoints) {
+            int best = 0;
+            int bestScore = Integer.MIN_VALUE;
+            for (int i = 0; i < endpoints.size(); i++) {
+                Endpoint endpoint = endpoints.get(i);
+                int score = isPowered(endpoint) ? 100 : 0;
+                if (endpoint.controller) {
+                    score += 1000 * countUnusedControllerFaces(endpoint.node);
+                }
+                if (score > bestScore || (score == bestScore
+                        && compareCallerPosition(callers.get(i), callers.get(best)) < 0)) {
+                    best = i;
+                    bestScore = score;
+                }
+            }
+            return best;
+        }
+
+        private static int compareCallerPosition(TileMEChannelCaller first,
+                                                 TileMEChannelCaller second) {
+            int comparison = Integer.compare(first.getWorld().provider.getDimension(),
+                    second.getWorld().provider.getDimension());
+            if (comparison != 0) return comparison;
+            comparison = Integer.compare(first.getPos().getX(), second.getPos().getX());
+            if (comparison != 0) return comparison;
+            comparison = Integer.compare(first.getPos().getY(), second.getPos().getY());
+            return comparison != 0 ? comparison
+                    : Integer.compare(first.getPos().getZ(), second.getPos().getZ());
         }
 
         @Nullable
@@ -579,7 +683,9 @@ public final class MEChannelCallerNetwork {
             for (int i = 0; i < currentCallers.size(); i++) {
                 int oldIndex = callers.indexOf(currentCallers.get(i));
                 if (oldIndex < 0
-                        || endpoints.get(oldIndex).node != currentEndpoints.get(i).node) {
+                        || endpoints.get(oldIndex).node != currentEndpoints.get(i).node
+                        || endpoints.get(oldIndex).controller != currentEndpoints.get(i).controller
+                        || endpoints.get(oldIndex).direction != currentEndpoints.get(i).direction) {
                     return false;
                 }
             }
@@ -590,24 +696,41 @@ public final class MEChannelCallerNetwork {
             return callers.contains(caller);
         }
 
+        private int getTransferCount() {
+            return outerConnections.size();
+        }
+
         private boolean isAlive() {
-            if (proxies.size() != callers.size()) {
+            if (outputProxies.size() != callers.size() - 1
+                    || sourceProxies.size() + (controllerSource == null ? 0 : 1)
+                    != callers.size() - 1 || outerConnections.size() != callers.size() - 1) {
                 return false;
             }
-            for (BridgeProxy proxy : proxies) {
+            if (controllerSource != null && !controllerSource.isAlive()) {
+                return false;
+            }
+            for (BridgeProxy proxy : sourceProxies) {
                 if (!proxy.isAlive()) {
                     return false;
                 }
             }
-            IGridNode anchor = proxies.get(0).outerNode;
-            for (int i = 1; i < proxies.size(); i++) {
-                IGridNode remote = proxies.get(i).outerNode;
-                if (!sameGrid(anchor, remote)
-                        && !hasDirectConnection(anchor, remote)) {
+            for (int i = 0; i < outputProxies.size(); i++) {
+                BridgeProxy output = outputProxies.get(i);
+                if (!output.isAlive()
+                        || !hasDirectConnection(getSourceOuter(i), output.outerNode)) {
                     return false;
                 }
             }
             return true;
+        }
+
+        @Nullable
+        private IGridNode getSourceOuter(int outputIndex) {
+            if (controllerSource != null) {
+                return controllerSource.getOuterNode(outputIndex);
+            }
+            return outputIndex >= 0 && outputIndex < sourceProxies.size()
+                    ? sourceProxies.get(outputIndex).outerNode : null;
         }
 
         private void destroy() {
@@ -618,10 +741,17 @@ public final class MEChannelCallerNetwork {
                 }
             }
             outerConnections.clear();
-            for (BridgeProxy proxy : new ArrayList<>(proxies)) {
+            for (BridgeProxy proxy : new ArrayList<>(sourceProxies)) {
                 proxy.destroy();
             }
-            proxies.clear();
+            sourceProxies.clear();
+            for (BridgeProxy proxy : new ArrayList<>(outputProxies)) {
+                proxy.destroy();
+            }
+            outputProxies.clear();
+            if (controllerSource != null) {
+                controllerSource.destroy();
+            }
             for (Endpoint endpoint : endpoints) {
                 if (endpoint != null) {
                     repath(endpoint.node, endpoint.node);
@@ -637,24 +767,28 @@ public final class MEChannelCallerNetwork {
         private final AENetworkProxy outerProxy;
         private final List<IGridConnection> connections = new ArrayList<>();
 
-        private BridgeProxy(TileMEChannelCaller caller, Endpoint endpoint) {
+        private BridgeProxy(TileMEChannelCaller caller, Endpoint endpoint,
+                            String suffix) {
             this.caller = caller;
             this.endpoint = endpoint;
             DimensionalCoord location = new DimensionalCoord(caller.getWorld(), caller.getPos());
-            EnumSet<EnumFacing> validSides = EnumSet.noneOf(EnumFacing.class);
-            ProxyHost channelHost = new ProxyHost(location, validSides);
+            EnumSet<EnumFacing> noSides = EnumSet.noneOf(EnumFacing.class);
+            ProxyHost channelHost = new ProxyHost(location, noSides);
             channelProxy = new AENetworkProxy(channelHost,
-                    "me_channel_caller_channel_" + caller.getPos(), ItemStack.EMPTY, false);
+                    proxyName("me_channel_caller_channel", caller, suffix),
+                    ItemStack.EMPTY, false);
             channelHost.setProxy(channelProxy);
             channelProxy.setFlags(GridFlags.REQUIRE_CHANNEL, GridFlags.COMPRESSED_CHANNEL);
-            channelProxy.setValidSides(validSides);
+            channelProxy.setValidSides(noSides);
 
-            ProxyHost outerHost = new ProxyHost(location, validSides);
+            ProxyHost outerHost = new ProxyHost(location, noSides);
             outerProxy = new AENetworkProxy(outerHost,
-                    "me_channel_caller_outer_" + caller.getPos(), ItemStack.EMPTY, true);
+                    proxyName("me_channel_caller_outer", caller, suffix),
+                    ItemStack.EMPTY, true);
             outerHost.setProxy(outerProxy);
-            outerProxy.setFlags(GridFlags.DENSE_CAPACITY, GridFlags.CANNOT_CARRY_COMPRESSED);
-            outerProxy.setValidSides(validSides);
+            outerProxy.setFlags(GridFlags.DENSE_CAPACITY,
+                    GridFlags.CANNOT_CARRY_COMPRESSED);
+            outerProxy.setValidSides(noSides);
             channelProxy.onReady();
             outerProxy.onReady();
             channelNode = channelProxy.getNode();
@@ -664,14 +798,17 @@ public final class MEChannelCallerNetwork {
         private final IGridNode channelNode;
         private final IGridNode outerNode;
 
-        private boolean attach() {
+        private boolean attachLocal() {
             if (endpoint.node == null || channelNode == null || outerNode == null) {
                 return false;
             }
+            AEPartLocation channelDirection = endpoint.cable
+                    ? endpoint.direction : AEPartLocation.INTERNAL;
+            AEPartLocation outerDirection = endpoint.direction == null
+                    ? AEPartLocation.INTERNAL : endpoint.direction;
             IGridConnection channelConnection = connect(endpoint.node, channelNode,
-                    AEPartLocation.INTERNAL);
-            IGridConnection outerConnection = connect(endpoint.node, outerNode,
-                    AEPartLocation.INTERNAL);
+                    channelDirection);
+            IGridConnection outerConnection = connect(endpoint.node, outerNode, outerDirection);
             if (channelConnection == null || outerConnection == null) {
                 return false;
             }
@@ -699,5 +836,234 @@ public final class MEChannelCallerNetwork {
             channelProxy.invalidate();
             outerProxy.invalidate();
         }
+    }
+
+    /** Supplies one P2P channel path per free face on the source controller. */
+    private static final class ControllerSource {
+        private final TileMEChannelCaller caller;
+        private final IGridNode controller;
+        private final List<ControllerFace> faces = new ArrayList<>();
+        private final List<IGridConnection> connections = new ArrayList<>();
+        private int nextOutput;
+
+        private ControllerSource(TileMEChannelCaller caller, IGridNode controller) {
+            this.caller = caller;
+            this.controller = controller;
+        }
+
+        private boolean attach() {
+            DimensionalCoord controllerLocation;
+            try {
+                controllerLocation = controller.getGridBlock().getLocation();
+            } catch (Throwable ignored) {
+                return false;
+            }
+            if (controllerLocation == null || controller.getGrid() == null) {
+                return false;
+            }
+
+            for (EnumFacing facing : CHANNEL_DIRECTION_ORDER) {
+                AEPartLocation face = AEPartLocation.fromFacing(facing);
+                if (isControllerFaceUsed(controller, face)) {
+                    continue;
+                }
+                ControllerFace proxies = createFaceProxies(face, controllerLocation);
+                if (proxies == null) {
+                    destroy();
+                    return false;
+                }
+                faces.add(proxies);
+
+                IGridConnection channelConnection = connect(controller,
+                        proxies.channel.getNode(), face);
+                if (channelConnection == null) {
+                    destroy();
+                    return false;
+                }
+                connections.add(channelConnection);
+
+                // Keep both proxies on this exact controller face. Never fall
+                // back to INTERNAL, which would bypass the controller's face
+                // topology and make unrelated channels available here.
+                if (!sameGrid(controller, proxies.outer.getNode())) {
+                    IGridConnection outerConnection = connect(controller,
+                            proxies.outer.getNode(), face);
+                    if (outerConnection == null) {
+                        destroy();
+                        return false;
+                    }
+                    connections.add(outerConnection);
+                }
+                if (!sameGrid(controller, proxies.channel.getNode())
+                        || !sameGrid(controller, proxies.outer.getNode())) {
+                    destroy();
+                    return false;
+                }
+            }
+            return !faces.isEmpty();
+        }
+
+        @Nullable
+        private ControllerFace createFaceProxies(AEPartLocation face,
+                                                 DimensionalCoord controllerLocation) {
+            EnumFacing outward = face.getFacing();
+            BlockPos position = new BlockPos(
+                    controllerLocation.x + outward.getFrontOffsetX(),
+                    controllerLocation.y + outward.getFrontOffsetY(),
+                    controllerLocation.z + outward.getFrontOffsetZ());
+            DimensionalCoord location = new DimensionalCoord(
+                    controllerLocation.getWorld(), position);
+            EnumSet<EnumFacing> sides = EnumSet.of(outward.getOpposite());
+            String suffix = face.toString();
+
+            ProxyHost channelHost = new ProxyHost(location, sides);
+            AENetworkProxy channel = new AENetworkProxy(channelHost,
+                    proxyName("me_channel_caller_controller_channel", caller, suffix),
+                    ItemStack.EMPTY, true);
+            channelHost.setProxy(channel);
+            channel.setFlags(GridFlags.REQUIRE_CHANNEL, GridFlags.COMPRESSED_CHANNEL);
+            channel.setValidSides(sides);
+
+            ProxyHost outerHost = new ProxyHost(location, sides);
+            AENetworkProxy outer = new AENetworkProxy(outerHost,
+                    proxyName("me_channel_caller_controller_outer", caller, suffix),
+                    ItemStack.EMPTY, true);
+            outerHost.setProxy(outer);
+            outer.setFlags(GridFlags.DENSE_CAPACITY,
+                    GridFlags.CANNOT_CARRY_COMPRESSED);
+            outer.setValidSides(sides);
+            channel.onReady();
+            outer.onReady();
+            if (channel.getNode() == null || outer.getNode() == null) {
+                channel.invalidate();
+                outer.invalidate();
+                return null;
+            }
+            return new ControllerFace(face, channel, outer);
+        }
+
+        @Nullable
+        private IGridNode acquireOuterNode() {
+            if (nextOutput >= faces.size()) {
+                return null;
+            }
+            return faces.get(nextOutput++).outer.getNode();
+        }
+
+        @Nullable
+        private IGridNode getOuterNode(int index) {
+            return index >= 0 && index < faces.size()
+                    ? faces.get(index).outer.getNode() : null;
+        }
+
+        private boolean isAlive() {
+            if (faces.isEmpty() || controller.getGrid() == null) {
+                return false;
+            }
+            for (ControllerFace face : faces) {
+                if (!face.channel.isActive() || !face.outer.isActive()
+                        || !sameGrid(controller, face.channel.getNode())
+                        || !sameGrid(controller, face.outer.getNode())
+                        || !hasDirectConnection(controller, face.channel.getNode())
+                        || !hasDirectConnection(controller, face.outer.getNode())) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private void destroy() {
+            for (IGridConnection connection : new ArrayList<>(connections)) {
+                try {
+                    connection.destroy();
+                } catch (Throwable ignored) {
+                }
+            }
+            connections.clear();
+            for (ControllerFace face : new ArrayList<>(faces)) {
+                face.channel.invalidate();
+                face.outer.invalidate();
+            }
+            faces.clear();
+            nextOutput = 0;
+        }
+    }
+
+    private static final class ControllerFace {
+        private final AEPartLocation direction;
+        private final AENetworkProxy channel;
+        private final AENetworkProxy outer;
+
+        private ControllerFace(AEPartLocation direction, AENetworkProxy channel,
+                               AENetworkProxy outer) {
+            this.direction = direction;
+            this.channel = channel;
+            this.outer = outer;
+        }
+    }
+
+    private static boolean isControllerFaceUsed(IGridNode controller,
+                                                AEPartLocation face) {
+        if (controller == null || face == null || face.getFacing() == null) {
+            return true;
+        }
+        DimensionalCoord location = null;
+        try {
+            location = controller.getGridBlock().getLocation();
+        } catch (Throwable ignored) {
+        }
+        EnumFacing facing = face.getFacing();
+        try {
+            for (IGridConnection connection : controller.getConnections()) {
+                if (connection == null) {
+                    continue;
+                }
+                IGridNode other = connection.getOtherSide(controller);
+                if (isProxyNode(other)) {
+                    continue;
+                }
+                if (connection.getDirection(controller) == face) {
+                    return true;
+                }
+                if (location != null && other != null && other.getGridBlock() != null) {
+                    DimensionalCoord otherLocation = other.getGridBlock().getLocation();
+                    if (otherLocation != null
+                            && otherLocation.x == location.x + facing.getFrontOffsetX()
+                            && otherLocation.y == location.y + facing.getFrontOffsetY()
+                            && otherLocation.z == location.z + facing.getFrontOffsetZ()) {
+                        return true;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+            return true;
+        }
+        return false;
+    }
+
+    private static int countUnusedControllerFaces(IGridNode controller) {
+        int count = 0;
+        for (EnumFacing facing : CHANNEL_DIRECTION_ORDER) {
+            if (!isControllerFaceUsed(controller, AEPartLocation.fromFacing(facing))) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static boolean isProxyNode(@Nullable IGridNode node) {
+        try {
+            return node != null && node.getGridBlock() != null
+                    && node.getGridBlock().getMachine() instanceof ProxyHost;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static String proxyName(String type, TileMEChannelCaller caller,
+                                    String suffix) {
+        return type + "_" + caller.getWorld().provider.getDimension() + "_"
+                + caller.getPos().getX() + "_" + caller.getPos().getY() + "_"
+                + caller.getPos().getZ() + "_" + suffix;
     }
 }
