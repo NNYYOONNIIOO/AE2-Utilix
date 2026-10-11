@@ -2,6 +2,7 @@ package com.ae2utilix.block;
 
 import appeng.api.implementations.items.IMemoryCard;
 import com.ae2utilix.AE2Utilix;
+import com.ae2utilix.item.ItemMEChannelListener;
 import com.ae2utilix.item.ItemMEChannelCaller;
 import net.minecraft.block.Block;
 import net.minecraft.block.ITileEntityProvider;
@@ -64,6 +65,10 @@ public class BlockMEChannelCaller extends Block implements ITileEntityProvider {
         }
 
         if (!held.isEmpty() && held.getItem() instanceof ItemMEChannelCaller) {
+            boolean listenerItem = held.getItem() instanceof ItemMEChannelListener;
+            if (((TileMEChannelCaller) tile).isListener() != listenerItem) {
+                return true;
+            }
             if (!world.isRemote) {
                 ((TileMEChannelCaller) tile).bindHeldItem(player, held);
             }

@@ -43,28 +43,29 @@ public class MEChannelCallerTOPIntegration implements Function<ITheOneProbe, Voi
         UUID id = caller.getChannelId();
         if (id == null) {
             probeInfo.text(new TextComponentTranslation(
-                    "ae2_utilix.me_channel_caller.status.missing"));
+                    caller.getTranslationPrefix() + ".status.missing"));
             return;
         }
         probeInfo.text(new TextComponentTranslation(
-                "item.ae2_utilix.me_channel_caller.tooltip.id", id));
+                "item." + caller.getTranslationPrefix().substring("ae2_utilix.".length())
+                        + ".tooltip.id", id));
         if (caller.getStatus() == TileMEChannelCaller.STATUS_CONNECTED) {
             probeInfo.text(new TextComponentTranslation(
-                    "ae2_utilix.me_channel_caller.status.connected"));
+                    caller.getTranslationPrefix() + ".status.connected"));
         } else if (caller.getStatus() == TileMEChannelCaller.STATUS_OFF) {
             probeInfo.text(new TextComponentTranslation(
-                    "ae2_utilix.me_channel_caller.status.off"));
+                    caller.getTranslationPrefix() + ".status.off"));
         } else if (caller.getStatusReason() == TileMEChannelCaller.REASON_OVERLOADED) {
             probeInfo.text(new TextComponentTranslation(
-                    "ae2_utilix.me_channel_caller.status.overloaded",
+                    caller.getTranslationPrefix() + ".status.overloaded",
                     caller.getRemoteChannels(),
                     appeng.core.AEConfig.instance().getDenseChannelCapacity()));
         } else if (caller.getStatusReason() == TileMEChannelCaller.REASON_AMBIGUOUS) {
             probeInfo.text(new TextComponentTranslation(
-                    "ae2_utilix.me_channel_caller.status.ambiguous"));
+                    caller.getTranslationPrefix() + ".status.ambiguous"));
         } else {
             probeInfo.text(new TextComponentTranslation(
-                    "ae2_utilix.me_channel_caller.status.missing"));
+                    caller.getTranslationPrefix() + ".status.missing"));
         }
     }
 }

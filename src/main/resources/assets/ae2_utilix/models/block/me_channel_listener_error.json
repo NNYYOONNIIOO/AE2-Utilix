@@ -1,0 +1,6 @@
+{
+  "parent": "block/cube_all",
+  "textures": {
+    "all": "ae2_utilix:blocks/me_channel_listener_error"
+  }
+}

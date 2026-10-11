@@ -73,6 +73,14 @@ public class TileMEChannelCaller extends AENetworkTile {
         return remoteChannels;
     }
 
+    public boolean isListener() {
+        return false;
+    }
+
+    public String getTranslationPrefix() {
+        return "ae2_utilix.me_channel_caller";
+    }
+
     public void setStatus(int nextStatus) {
         setStatus(nextStatus, REASON_NONE, 0);
     }
@@ -99,10 +107,10 @@ public class TileMEChannelCaller extends AENetworkTile {
         if (blockId != null) {
             if (itemId == null) {
                 bindOneHeldItem(player, held, blockId);
-                sendMessage(player, "ae2_utilix.me_channel_caller.bind.copied");
+                sendRoleMessage(player, "bind.copied");
                 return;
             }
-            sendMessage(player, "ae2_utilix.me_channel_caller.bind.occupied");
+            sendRoleMessage(player, "bind.occupied");
             return;
         }
 
@@ -110,9 +118,9 @@ public class TileMEChannelCaller extends AENetworkTile {
         setChannelId(id);
         if (itemId == null) {
             bindOneHeldItem(player, held, id);
-            sendMessage(player, "ae2_utilix.me_channel_caller.bind.created");
+            sendRoleMessage(player, "bind.created");
         } else {
-            sendMessage(player, "ae2_utilix.me_channel_caller.bind.pasted");
+            sendRoleMessage(player, "bind.pasted");
         }
     }
 
@@ -140,19 +148,23 @@ public class TileMEChannelCaller extends AENetworkTile {
             }
             card.setMemoryCardContents(held, MEMORY_SETTINGS, data);
             card.notifyUser(player, MemoryCardMessages.SETTINGS_SAVED);
-            sendMessage(player, "ae2_utilix.me_channel_caller.memory.saved");
+            sendRoleMessage(player, "memory.saved");
             return;
         }
 
         NBTTagCompound data = card.getData(held);
         if (data == null || !data.hasUniqueId(NBT_CHANNEL_ID)) {
             card.notifyUser(player, MemoryCardMessages.INVALID_MACHINE);
-            sendMessage(player, "ae2_utilix.me_channel_caller.memory.invalid");
+            sendRoleMessage(player, "memory.invalid");
             return;
         }
         setChannelId(data.getUniqueId(NBT_CHANNEL_ID));
         card.notifyUser(player, MemoryCardMessages.SETTINGS_LOADED);
-        sendMessage(player, "ae2_utilix.me_channel_caller.memory.loaded");
+        sendRoleMessage(player, "memory.loaded");
+    }
+
+    private void sendRoleMessage(EntityPlayer player, String suffix) {
+        sendMessage(player, getTranslationPrefix() + "." + suffix);
     }
 
     private static void sendMessage(EntityPlayer player, String key) {
@@ -254,7 +266,7 @@ public class TileMEChannelCaller extends AENetworkTile {
             BlockPos pos = tile.getPos();
             if (world == null || pos == null) return;
             net.minecraft.block.state.IBlockState state = world.getBlockState(pos);
-            if (state.getBlock() == AE2Utilix.BLOCK_ME_CHANNEL_CALLER
+            if (state.getBlock() instanceof BlockMEChannelCaller
                     && state.getPropertyKeys().contains(BlockMEChannelCaller.STATUS)) {
                 world.setBlockState(pos, state.withProperty(BlockMEChannelCaller.STATUS, status), 3);
             }

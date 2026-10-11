@@ -37,6 +37,11 @@ public class ClientEventHandler {
                 ModelLoader.setCustomModelResourceLocation(caller, 0,
                         new ModelResourceLocation(AE2Utilix.MODID + ":me_channel_caller", "inventory"));
             }
+            Item listener = Item.getItemFromBlock(AE2Utilix.BLOCK_ME_CHANNEL_LISTENER);
+            if (listener != null) {
+                ModelLoader.setCustomModelResourceLocation(listener, 0,
+                        new ModelResourceLocation(AE2Utilix.MODID + ":me_channel_listener", "inventory"));
+            }
         }
         if (AE2UtilixConfig.registerProductReturnCard) {
             ModelLoader.setCustomModelResourceLocation(AE2Utilix.PRODUCT_RETURN_CARD, 0,

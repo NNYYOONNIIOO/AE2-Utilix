@@ -4,8 +4,10 @@ import com.ae2utilix.block.BlockCrystalGrowthChamber;
 import com.ae2utilix.block.BlockPhaseInterface;
 import com.ae2utilix.block.BlockCommonInterfaceAlternate;
 import com.ae2utilix.block.BlockMEChannelCaller;
+import com.ae2utilix.block.BlockMEChannelListener;
 import com.ae2utilix.block.TileCrystalGrowthChamber;
 import com.ae2utilix.block.TileMEChannelCaller;
+import com.ae2utilix.block.TileMEChannelListener;
 import com.ae2utilix.block.TilePhaseInterface;
 import com.ae2utilix.block.TileCommonInterfaceAlternate;
 import com.ae2utilix.block.terminal.*;
@@ -101,6 +103,7 @@ public class AE2Utilix implements IGuiHandler {
     public static final BlockCommonInterfaceAlternate BLOCK_COMMON_INTERFACE_ALTERNATE = new BlockCommonInterfaceAlternate();
     public static final BlockCrystalGrowthChamber BLOCK_CRYSTAL_GROWTH_CHAMBER = new BlockCrystalGrowthChamber();
     public static final BlockMEChannelCaller BLOCK_ME_CHANNEL_CALLER = new BlockMEChannelCaller();
+    public static final BlockMEChannelListener BLOCK_ME_CHANNEL_LISTENER = new BlockMEChannelListener();
 
     public static final BlockStorageTerminal BLOCK_STORAGE_TERMINAL = new BlockStorageTerminal();
     public static final BlockCraftingTerminal BLOCK_CRAFTING_TERMINAL = new BlockCraftingTerminal();
@@ -161,6 +164,14 @@ public class AE2Utilix implements IGuiHandler {
             item.setRegistryName(MODID, "me_channel_caller");
             registerBlockAndItem(BLOCK_ME_CHANNEL_CALLER, item);
             GameRegistry.registerTileEntity(TileMEChannelCaller.class, MODID + ":me_channel_caller");
+
+            BLOCK_ME_CHANNEL_LISTENER.setRegistryName(MODID, "me_channel_listener");
+            BLOCK_ME_CHANNEL_LISTENER.setUnlocalizedName(MODID + ".me_channel_listener");
+            com.ae2utilix.item.ItemMEChannelListener listenerItem =
+                    new com.ae2utilix.item.ItemMEChannelListener(BLOCK_ME_CHANNEL_LISTENER);
+            listenerItem.setRegistryName(MODID, "me_channel_listener");
+            registerBlockAndItem(BLOCK_ME_CHANNEL_LISTENER, listenerItem);
+            GameRegistry.registerTileEntity(TileMEChannelListener.class, MODID + ":me_channel_listener");
             MinecraftForge.EVENT_BUS.register(MEChannelCallerNetwork.class);
             MinecraftForge.EVENT_BUS.register(com.ae2utilix.integration.MEChannelCallerMemoryCardHandler.class);
         }
