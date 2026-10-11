@@ -102,9 +102,17 @@ public class BlockMEChannelCaller extends Block implements ITileEntityProvider {
                                 EntityLivingBase placer, ItemStack stack) {
         TileEntity tile = world.getTileEntity(pos);
         if (tile instanceof TileMEChannelCaller) {
+            TileMEChannelCaller channelCaller = (TileMEChannelCaller) tile;
+            // The unified item uses metadata 0 for caller mode and metadata
+            // 3 for listener mode.  Restore that role on the TileEntity as
+            // well as in the placed block state; getActualState derives the
+            // rendered model from the TileEntity on the next update.
+            boolean listenerMode = stack != null && stack.getMetadata() >= 3;
+            world.setBlockState(pos, getStateFromMeta(listenerMode ? 3 : 0), 3);
+            channelCaller.setListenerMode(listenerMode);
             java.util.UUID id = ItemMEChannelCaller.getChannelId(stack);
             if (id != null) {
-                ((TileMEChannelCaller) tile).setChannelId(id);
+                channelCaller.setChannelId(id);
             }
         }
     }

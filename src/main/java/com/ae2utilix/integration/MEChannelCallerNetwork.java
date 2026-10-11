@@ -121,6 +121,7 @@ public final class MEChannelCallerNetwork {
         }
         DIRTY_WORLDS.clear();
         scheduleNextRefresh();
+        MEChannelCallerSavedData.prune(world);
         reconcile(snapshotAllCallers());
     }
 
@@ -196,13 +197,21 @@ public final class MEChannelCallerNetwork {
                 Endpoint source = endpointsByCaller.get(caller);
                 List<TileMEChannelCaller> remoteListeners = new ArrayList<>();
                 List<Endpoint> remoteEndpoints = new ArrayList<>();
+                String key = bridgeKey(entry.getKey(), caller);
+                CallerBridge bridge = BRIDGES.get(key);
                 for (TileMEChannelCaller listener : group.listeners) {
                     Endpoint destination = endpointsByCaller.get(listener);
                     if (source == null || source.node == null
                             || destination == null || destination.node == null) {
                         continue;
                     }
-                    if (sameGrid(source.node, destination.node)) {
+                    // A live bridge itself makes the two endpoint grids share
+                    // an AE grid. Keep that pair in the bridge input on later
+                    // refreshes; otherwise the merged grid would be mistaken
+                    // for an ordinary local connection and the bridge would
+                    // be destroyed every ten ticks.
+                    boolean alreadyBridged = bridge != null && bridge.contains(listener);
+                    if (sameGrid(source.node, destination.node) && !alreadyBridged) {
                         increment(connectedPeers, caller);
                         increment(connectedPeers, listener);
                     } else {
@@ -211,8 +220,6 @@ public final class MEChannelCallerNetwork {
                     }
                 }
 
-                String key = bridgeKey(entry.getKey(), caller);
-                CallerBridge bridge = BRIDGES.get(key);
                 if (remoteListeners.isEmpty()) {
                     destroyBridge(key);
                     continue;
@@ -956,11 +963,18 @@ public final class MEChannelCallerNetwork {
         }
 
         private boolean isAlive() {
-            return channelProxy.isActive() && outerProxy.isActive()
-                    && channelNode != null && outerNode != null
+            // Do not require the synthetic channel or outer node to be
+            // active here. A listener can intentionally start with an
+            // unpowered network and no available channel; the outer dense
+            // connection is what transports the sender's power first. If
+            // active() is checked at this point, the bridge destroys itself
+            // before it can provide that power.
+            return channelNode != null && outerNode != null
                     && endpoint.node.getGrid() != null
                     && sameGrid(endpoint.node, channelNode)
-                    && sameGrid(endpoint.node, outerNode);
+                    && sameGrid(endpoint.node, outerNode)
+                    && hasDirectConnection(endpoint.node, channelNode)
+                    && hasDirectConnection(endpoint.node, outerNode);
         }
 
         private void destroy() {

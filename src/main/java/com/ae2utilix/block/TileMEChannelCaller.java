@@ -5,6 +5,7 @@ import appeng.api.implementations.items.MemoryCardMessages;
 import appeng.tile.grid.AENetworkTile;
 import com.ae2utilix.AE2Utilix;
 import com.ae2utilix.integration.MEChannelCallerNetwork;
+import com.ae2utilix.integration.MEChannelCallerSavedData;
 import com.ae2utilix.item.ItemMEChannelCaller;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.entity.player.EntityPlayer;
@@ -59,6 +60,7 @@ public class TileMEChannelCaller extends AENetworkTile {
         }
         channelId = id;
         saveChanges();
+        MEChannelCallerSavedData.update(this);
         MEChannelCallerNetwork.markDirty(this);
         markForUpdate();
     }
@@ -89,6 +91,7 @@ public class TileMEChannelCaller extends AENetworkTile {
         }
         this.listenerMode = listenerMode;
         saveChanges();
+        MEChannelCallerSavedData.update(this);
         MEChannelCallerNetwork.markDirty(this);
         if (world != null && !world.isRemote) {
             IBlockStateUpdater.update(this, status, listenerMode);
@@ -191,13 +194,34 @@ public class TileMEChannelCaller extends AENetworkTile {
     }
 
     public void invalidateCaller() {
+        MEChannelCallerSavedData.remove(this);
         MEChannelCallerNetwork.unregister(this);
     }
 
     @Override
     public void onReady() {
         super.onReady();
+        restoreListenerModeFromBlockState();
+        MEChannelCallerSavedData.update(this);
         MEChannelCallerNetwork.register(this);
+    }
+
+    /**
+     * Older unified blocks may already have listener-mode block metadata while
+     * their TileEntity was saved before the mode field existed.  Restore that
+     * role before registering the endpoint, otherwise getActualState() would
+     * turn the block back into a caller and create sender-to-sender links.
+     */
+    private void restoreListenerModeFromBlockState() {
+        if (world == null || world.isRemote || listenerMode
+                || !(world.getBlockState(pos).getBlock() instanceof BlockMEChannelCaller)) {
+            return;
+        }
+        net.minecraft.block.state.IBlockState state = world.getBlockState(pos);
+        if (state.getPropertyKeys().contains(BlockMEChannelCaller.LISTENER_MODE)
+                && state.getValue(BlockMEChannelCaller.LISTENER_MODE)) {
+            setListenerMode(true);
+        }
     }
 
     @Override
