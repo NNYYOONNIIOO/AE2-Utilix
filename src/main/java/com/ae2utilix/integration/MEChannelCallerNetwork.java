@@ -990,14 +990,20 @@ public final class MEChannelCallerNetwork {
                 }
                 connections.add(channelConnection);
 
-                // The outer proxy is world-accessible and joins the controller
-                // grid through AE2's neighbour discovery. Explicitly attaching
-                // both nodes to this face competes with the channel proxy for
-                // the controller's single face connection and can reject the
-                // entire bridge.
-                repath(controller, proxies.outer.getNode());
-                if (!sameGrid(controller, proxies.channel.getNode())) {
-                    failureReason = "channel proxy did not join controller grid on face " + face;
+                IGridConnection branchConnection = connect(proxies.channel.getNode(),
+                        proxies.outer.getNode(), AEPartLocation.INTERNAL);
+                if (branchConnection == null) {
+                    failureReason = "could not connect outer proxy to channel proxy on face "
+                            + face;
+                    destroy();
+                    return false;
+                }
+                connections.add(branchConnection);
+                repath(proxies.channel.getNode(), proxies.outer.getNode());
+                if (!sameGrid(controller, proxies.channel.getNode())
+                        || !sameGrid(controller, proxies.outer.getNode())) {
+                    failureReason = "controller proxy pair did not join the source grid on face "
+                            + face;
                     destroy();
                     return false;
                 }
@@ -1010,6 +1016,34 @@ public final class MEChannelCallerNetwork {
         }
 
         private String getFailureReason() {
+            if (faces.isEmpty()) {
+                return "controller has no attached proxy faces";
+            }
+            if (controller.getGrid() == null) {
+                return "controller is no longer in an AE grid";
+            }
+            for (ControllerFace face : faces) {
+                IGridNode channel = face.channel.getNode();
+                IGridNode outer = face.outer.getNode();
+                if (!face.channel.isActive() || channel == null) {
+                    return "channel proxy is inactive on controller face " + face.direction;
+                }
+                if (!face.outer.isActive() || outer == null) {
+                    return "outer proxy is inactive on controller face " + face.direction;
+                }
+                if (!sameGrid(controller, channel)) {
+                    return "channel proxy is outside the source grid on face " + face.direction;
+                }
+                if (!sameGrid(controller, outer)) {
+                    return "outer proxy is outside the source grid on face " + face.direction;
+                }
+                if (!hasDirectConnection(controller, channel)) {
+                    return "controller-to-channel edge is missing on face " + face.direction;
+                }
+                if (!hasDirectConnection(channel, outer)) {
+                    return "channel-to-outer edge is missing on face " + face.direction;
+                }
+            }
             return failureReason;
         }
 
@@ -1074,7 +1108,8 @@ public final class MEChannelCallerNetwork {
                 if (!face.channel.isActive() || !face.outer.isActive()
                         || !sameGrid(controller, face.channel.getNode())
                         || !sameGrid(controller, face.outer.getNode())
-                        || !hasDirectConnection(controller, face.channel.getNode())) {
+                        || !hasDirectConnection(controller, face.channel.getNode())
+                        || !hasDirectConnection(face.channel.getNode(), face.outer.getNode())) {
                     return false;
                 }
             }
