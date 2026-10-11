@@ -60,6 +60,7 @@ public final class MEChannelCallerNetwork {
     private static final Set<World> DIRTY_WORLDS =
             Collections.newSetFromMap(new WeakHashMap<World, Boolean>());
     private static final Map<String, CallerBridge> BRIDGES = new HashMap<>();
+    private static final Map<String, String> LAST_BRIDGE_FAILURES = new HashMap<>();
 
     private MEChannelCallerNetwork() {
     }
@@ -184,6 +185,7 @@ public final class MEChannelCallerNetwork {
 
             List<TileMEChannelCaller> activeCallers = new ArrayList<>();
             List<Endpoint> endpoints = new ArrayList<>();
+            List<String> unresolvedCallers = new ArrayList<>();
             for (TileMEChannelCaller caller : entry.getValue()) {
                 Endpoint endpoint = findEndpoint(caller);
                 if (endpoint == null || endpoint.node == null) {
@@ -192,6 +194,8 @@ public final class MEChannelCallerNetwork {
                     // isolated node to the group's powered network.
                     caller.setStatus(TileMEChannelCaller.STATUS_OFF,
                             TileMEChannelCaller.REASON_NONE, 0);
+                    unresolvedCallers.add(describeCaller(caller)
+                            + " has no usable adjacent AE node");
                 } else {
                     activeCallers.add(caller);
                     endpoints.add(endpoint);
@@ -200,6 +204,10 @@ public final class MEChannelCallerNetwork {
 
             if (activeCallers.size() < 2) {
                 destroyBridge(key);
+                reportBridgeFailure(entry.getKey(), "resolved " + activeCallers.size()
+                        + " of " + entry.getValue().size() + " loaded callers"
+                        + (unresolvedCallers.isEmpty() ? ""
+                        : "; " + join(unresolvedCallers)));
                 for (TileMEChannelCaller caller : entry.getValue()) {
                     Endpoint endpoint = findEndpoint(caller);
                     boolean powered = isPowered(endpoint);
@@ -228,6 +236,11 @@ public final class MEChannelCallerNetwork {
                 liveBridgeKeys.add(key);
             }
             boolean connected = alreadyConnected || (bridge != null && bridge.isAlive());
+            if (connected) {
+                clearBridgeFailure(entry.getKey());
+            } else if (bridge != null) {
+                reportBridgeFailure(entry.getKey(), bridge.getFailureReason());
+            }
             for (int i = 0; i < activeCallers.size(); i++) {
                 TileMEChannelCaller caller = activeCallers.get(i);
                 Endpoint endpoint = endpoints.get(i);
@@ -403,6 +416,50 @@ public final class MEChannelCallerNetwork {
         return id == null ? "" : id.toString();
     }
 
+    private static void reportBridgeFailure(UUID id, String reason) {
+        if (id == null || reason == null) {
+            return;
+        }
+        String key = bridgeKey(id);
+        if (!reason.equals(LAST_BRIDGE_FAILURES.put(key, reason))) {
+            AE2Utilix.LOGGER.warn("ME channel caller UUID " + key
+                    + " cannot connect: " + reason);
+        }
+    }
+
+    private static void clearBridgeFailure(UUID id) {
+        if (id != null) {
+            LAST_BRIDGE_FAILURES.remove(bridgeKey(id));
+        }
+    }
+
+    private static String describeCaller(TileMEChannelCaller caller) {
+        if (caller == null || caller.getWorld() == null || caller.getPos() == null) {
+            return "unknown caller";
+        }
+        return "dimension " + caller.getWorld().provider.getDimension()
+                + " at " + caller.getPos();
+    }
+
+    private static String describeEndpoint(Endpoint endpoint) {
+        if (endpoint == null) {
+            return "no endpoint";
+        }
+        return (endpoint.controller ? "controller" : endpoint.cable ? "cable" : "grid host")
+                + " on " + endpoint.direction;
+    }
+
+    private static String join(List<String> values) {
+        StringBuilder result = new StringBuilder();
+        for (String value : values) {
+            if (result.length() > 0) {
+                result.append(", ");
+            }
+            result.append(value);
+        }
+        return result.toString();
+    }
+
     private static void removeBridgesFor(TileMEChannelCaller caller) {
         for (String key : new ArrayList<>(BRIDGES.keySet())) {
             CallerBridge bridge = BRIDGES.get(key);
@@ -575,6 +632,10 @@ public final class MEChannelCallerNetwork {
             CallerBridge result = new CallerBridge(callers, endpoints, sourceIndex,
                     controllerSource);
             if (controllerSource != null && !controllerSource.attach()) {
+                reportBridgeFailure(callers.get(sourceIndex).getChannelId(),
+                        "controller source setup failed at "
+                                + describeCaller(callers.get(sourceIndex)) + ": "
+                                + controllerSource.getFailureReason());
                 result.destroy();
                 return null;
             }
@@ -588,6 +649,10 @@ public final class MEChannelCallerNetwork {
                         "output_" + outputIndex);
                 result.outputProxies.add(output);
                 if (!output.attachLocal()) {
+                    reportBridgeFailure(callers.get(sourceIndex).getChannelId(),
+                            "destination local proxy setup failed at "
+                                    + describeCaller(callers.get(i)) + " ("
+                                    + describeEndpoint(endpoints.get(i)) + ")");
                     result.destroy();
                     return null;
                 }
@@ -596,6 +661,9 @@ public final class MEChannelCallerNetwork {
                 if (controllerSource != null) {
                     sourceOuter = controllerSource.acquireOuterNode();
                     if (sourceOuter == null) {
+                        reportBridgeFailure(callers.get(sourceIndex).getChannelId(),
+                                "controller source has no outer proxy for destination "
+                                        + describeCaller(callers.get(i)));
                         result.destroy();
                         return null;
                     }
@@ -604,6 +672,10 @@ public final class MEChannelCallerNetwork {
                             sourceEndpoint, "source_" + outputIndex);
                     result.sourceProxies.add(source);
                     if (!source.attachLocal()) {
+                        reportBridgeFailure(callers.get(sourceIndex).getChannelId(),
+                                "source local proxy setup failed at "
+                                        + describeCaller(callers.get(sourceIndex)) + " ("
+                                        + describeEndpoint(sourceEndpoint) + ")");
                         result.destroy();
                         return null;
                     }
@@ -612,6 +684,9 @@ public final class MEChannelCallerNetwork {
 
                 IGridConnection connection = connectOuter(sourceOuter, output.outerNode);
                 if (connection == null) {
+                    reportBridgeFailure(callers.get(sourceIndex).getChannelId(),
+                            "could not join source " + describeCaller(callers.get(sourceIndex))
+                                    + " to destination " + describeCaller(callers.get(i)));
                     result.destroy();
                     return null;
                 }
@@ -722,6 +797,34 @@ public final class MEChannelCallerNetwork {
                 }
             }
             return true;
+        }
+
+        private String getFailureReason() {
+            if (outputProxies.size() != callers.size() - 1
+                    || sourceProxies.size() + (controllerSource == null ? 0 : 1)
+                    != callers.size() - 1 || outerConnections.size() != callers.size() - 1) {
+                return "bridge proxy or connection count is incomplete";
+            }
+            if (controllerSource != null && !controllerSource.isAlive()) {
+                return "controller source proxies are inactive or outside the controller grid";
+            }
+            for (BridgeProxy proxy : sourceProxies) {
+                if (!proxy.isAlive()) {
+                    return "source proxy is inactive or outside its local grid";
+                }
+            }
+            for (int i = 0; i < outputProxies.size(); i++) {
+                BridgeProxy output = outputProxies.get(i);
+                if (!output.isAlive()) {
+                    return "destination proxy is inactive or outside its local grid at "
+                            + describeCaller(callers.get(i < sourceIndex ? i : i + 1));
+                }
+                if (!hasDirectConnection(getSourceOuter(i), output.outerNode)) {
+                    return "outer bridge connection is missing for destination "
+                            + describeCaller(callers.get(i < sourceIndex ? i : i + 1));
+                }
+            }
+            return "bridge is not alive for an unknown reason";
         }
 
         @Nullable
@@ -845,6 +948,7 @@ public final class MEChannelCallerNetwork {
         private final List<ControllerFace> faces = new ArrayList<>();
         private final List<IGridConnection> connections = new ArrayList<>();
         private int nextOutput;
+        private String failureReason = "controller source setup failed";
 
         private ControllerSource(TileMEChannelCaller caller, IGridNode controller) {
             this.caller = caller;
@@ -856,9 +960,11 @@ public final class MEChannelCallerNetwork {
             try {
                 controllerLocation = controller.getGridBlock().getLocation();
             } catch (Throwable ignored) {
+                failureReason = "controller grid block has no location";
                 return false;
             }
             if (controllerLocation == null || controller.getGrid() == null) {
+                failureReason = "controller has no location or is not in an AE grid";
                 return false;
             }
 
@@ -869,6 +975,7 @@ public final class MEChannelCallerNetwork {
                 }
                 ControllerFace proxies = createFaceProxies(face, controllerLocation);
                 if (proxies == null) {
+                    failureReason = "could not create proxies for controller face " + face;
                     destroy();
                     return false;
                 }
@@ -877,6 +984,7 @@ public final class MEChannelCallerNetwork {
                 IGridConnection channelConnection = connect(controller,
                         proxies.channel.getNode(), face);
                 if (channelConnection == null) {
+                    failureReason = "could not connect channel proxy on controller face " + face;
                     destroy();
                     return false;
                 }
@@ -889,11 +997,20 @@ public final class MEChannelCallerNetwork {
                 // entire bridge.
                 repath(controller, proxies.outer.getNode());
                 if (!sameGrid(controller, proxies.channel.getNode())) {
+                    failureReason = "channel proxy did not join controller grid on face " + face;
                     destroy();
                     return false;
                 }
             }
-            return !faces.isEmpty();
+            if (faces.isEmpty()) {
+                failureReason = "controller has no unused faces for channel proxies";
+                return false;
+            }
+            return true;
+        }
+
+        private String getFailureReason() {
+            return failureReason;
         }
 
         @Nullable
