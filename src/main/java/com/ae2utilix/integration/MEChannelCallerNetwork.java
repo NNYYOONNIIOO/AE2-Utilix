@@ -882,20 +882,13 @@ public final class MEChannelCallerNetwork {
                 }
                 connections.add(channelConnection);
 
-                // Keep both proxies on this exact controller face. Never fall
-                // back to INTERNAL, which would bypass the controller's face
-                // topology and make unrelated channels available here.
-                if (!sameGrid(controller, proxies.outer.getNode())) {
-                    IGridConnection outerConnection = connect(controller,
-                            proxies.outer.getNode(), face);
-                    if (outerConnection == null) {
-                        destroy();
-                        return false;
-                    }
-                    connections.add(outerConnection);
-                }
-                if (!sameGrid(controller, proxies.channel.getNode())
-                        || !sameGrid(controller, proxies.outer.getNode())) {
+                // The outer proxy is world-accessible and joins the controller
+                // grid through AE2's neighbour discovery. Explicitly attaching
+                // both nodes to this face competes with the channel proxy for
+                // the controller's single face connection and can reject the
+                // entire bridge.
+                repath(controller, proxies.outer.getNode());
+                if (!sameGrid(controller, proxies.channel.getNode())) {
                     destroy();
                     return false;
                 }
@@ -964,8 +957,7 @@ public final class MEChannelCallerNetwork {
                 if (!face.channel.isActive() || !face.outer.isActive()
                         || !sameGrid(controller, face.channel.getNode())
                         || !sameGrid(controller, face.outer.getNode())
-                        || !hasDirectConnection(controller, face.channel.getNode())
-                        || !hasDirectConnection(controller, face.outer.getNode())) {
+                        || !hasDirectConnection(controller, face.channel.getNode())) {
                     return false;
                 }
             }
