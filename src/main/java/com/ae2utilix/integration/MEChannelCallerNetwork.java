@@ -545,11 +545,11 @@ public final class MEChannelCallerNetwork {
                 }
             }
             this.occupied = granted;
-            // The reported limit is what the caller actually collected: the channels
-            // flowing in through its sender faces, which is exactly the amount available
-            // for the receivers to consume. A face fed with only one channel therefore
-            // contributes one, not the configured maximum.
-            this.maxChannels = supplied;
+            // The reported limit is what the caller side makes available: the sum of the
+            // channels each touched sender face can carry, so a face on a normal cable
+            // contributes the normal capacity while dense cable and controller faces
+            // contribute the dense capacity.
+            this.maxChannels = supplyMax;
             // Overload needs both halves to be true: this link must actually be drawing
             // everything its sender faces can give, and the receiver side must still want
             // more than it received. A link with spare supply is never reported as
