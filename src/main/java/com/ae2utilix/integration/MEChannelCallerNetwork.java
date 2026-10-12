@@ -29,6 +29,7 @@ import net.minecraftforge.fml.common.gameevent.TickEvent;
 import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -61,6 +62,32 @@ public final class MEChannelCallerNetwork {
             Collections.newSetFromMap(new WeakHashMap<World, Boolean>());
     private static final Map<String, CallerBridge> BRIDGES = new HashMap<>();
     private static final Map<String, String> LAST_BRIDGE_FAILURES = new HashMap<>();
+    private static final Map<IGridNode, Set<AEPartLocation>> RESERVED_CONTROLLER_FACES =
+            new IdentityHashMap<>();
+    private static final Comparator<TileMEChannelCaller> CALLER_ORDER =
+            new Comparator<TileMEChannelCaller>() {
+                @Override
+                public int compare(TileMEChannelCaller first, TileMEChannelCaller second) {
+                    int firstDimension = first == null || first.getWorld() == null
+                            ? Integer.MIN_VALUE
+                            : first.getWorld().provider.getDimension();
+                    int secondDimension = second == null || second.getWorld() == null
+                            ? Integer.MIN_VALUE
+                            : second.getWorld().provider.getDimension();
+                    if (firstDimension != secondDimension) {
+                        return firstDimension < secondDimension ? -1 : 1;
+                    }
+                    long firstPosition = first == null || first.getPos() == null
+                            ? Long.MIN_VALUE : first.getPos().toLong();
+                    long secondPosition = second == null || second.getPos() == null
+                            ? Long.MIN_VALUE : second.getPos().toLong();
+                    if (firstPosition != secondPosition) {
+                        return firstPosition < secondPosition ? -1 : 1;
+                    }
+                    return Integer.compare(System.identityHashCode(first),
+                            System.identityHashCode(second));
+                }
+            };
 
     private MEChannelCallerNetwork() {
     }
@@ -164,6 +191,8 @@ public final class MEChannelCallerNetwork {
         Map<TileMEChannelCaller, Endpoint> endpointsByCaller = new IdentityHashMap<>();
         Map<TileMEChannelCaller, Integer> expectedPeers = new IdentityHashMap<>();
         Map<TileMEChannelCaller, Integer> connectedPeers = new IdentityHashMap<>();
+        Set<TileMEChannelCaller> capacityBlocked =
+                Collections.newSetFromMap(new IdentityHashMap<TileMEChannelCaller, Boolean>());
         for (TileMEChannelCaller caller : callers) {
             UUID id = caller.getChannelId();
             if (id != null) {
@@ -183,48 +212,25 @@ public final class MEChannelCallerNetwork {
             }
         }
 
-        // A UUID is a channel, while a local AE grid is one physical source
-        // for that channel. Do not create one controller/outer proxy set for
-        // every caller in the same grid: doing so connects the same network
-        // repeatedly and can make callers appear to bind to one another.
         for (ChannelGroup group : byId.values()) {
-            for (TileMEChannelCaller caller : group.callers) {
-                Endpoint source = endpointsByCaller.get(caller);
-                if (source == null || source.node == null || source.node.getGrid() == null) {
-                    continue;
-                }
-                SourceGroup sourceGroup = null;
-                for (SourceGroup candidate : group.sources) {
-                    if (candidate.source.node.getGrid() == source.node.getGrid()) {
-                        sourceGroup = candidate;
-                        break;
-                    }
-                }
-                if (sourceGroup == null) {
-                    sourceGroup = new SourceGroup(caller, source);
-                    group.sources.add(sourceGroup);
-                }
-                sourceGroup.callers.add(caller);
-            }
+            Collections.sort(group.callers, CALLER_ORDER);
+            Collections.sort(group.listeners, CALLER_ORDER);
         }
 
         Set<String> liveBridgeKeys = new HashSet<>();
         for (Map.Entry<UUID, ChannelGroup> entry : byId.entrySet()) {
             ChannelGroup group = entry.getValue();
-            for (SourceGroup sourceGroup : group.sources) {
+            for (TileMEChannelCaller caller : group.callers) {
                 for (TileMEChannelCaller listener : group.listeners) {
-                    for (TileMEChannelCaller caller : sourceGroup.callers) {
-                        increment(expectedPeers, caller);
-                    }
-                    // A listener needs one path per distinct source grid, not
-                    // one path per caller sharing that source grid.
+                    increment(expectedPeers, caller);
                     increment(expectedPeers, listener);
                 }
             }
 
-            for (SourceGroup sourceGroup : group.sources) {
-                TileMEChannelCaller caller = sourceGroup.sourceCaller;
-                Endpoint source = sourceGroup.source;
+            int allocatedPaths = 0;
+            int channelCapacity = getTransferCapacity();
+            for (TileMEChannelCaller caller : group.callers) {
+                Endpoint source = endpointsByCaller.get(caller);
                 List<TileMEChannelCaller> remoteListeners = new ArrayList<>();
                 List<Endpoint> remoteEndpoints = new ArrayList<>();
                 String key = bridgeKey(entry.getKey(), caller);
@@ -235,20 +241,26 @@ public final class MEChannelCallerNetwork {
                             || destination == null || destination.node == null) {
                         continue;
                     }
-                    // A live bridge itself makes the two endpoint grids share
-                    // an AE grid. Keep that pair in the bridge input on later
-                    // refreshes; otherwise the merged grid would be mistaken
-                    // for an ordinary local connection and the bridge would
-                    // be destroyed every ten ticks.
                     boolean alreadyBridged = bridge != null && bridge.contains(listener);
-                    if (sameGrid(source.node, destination.node) && !alreadyBridged) {
-                        for (TileMEChannelCaller sourceCaller : sourceGroup.callers) {
-                            increment(connectedPeers, sourceCaller);
-                        }
+                    boolean bridgedByAnotherCaller = hasBridgeFromAnotherCaller(
+                            entry.getKey(), caller, listener, group.callers);
+                    boolean naturallyConnected = sameGrid(source.node, destination.node)
+                            && !alreadyBridged && !bridgedByAnotherCaller;
+                    if (naturallyConnected) {
+                        increment(connectedPeers, caller);
                         increment(connectedPeers, listener);
                     } else {
+                        // Keep an existing path alive even when the total has
+                        // reached the capacity. New sender paths are denied
+                        // once this UUID has consumed its available channels.
+                        if (!alreadyBridged && allocatedPaths >= channelCapacity) {
+                            capacityBlocked.add(caller);
+                            capacityBlocked.add(listener);
+                            continue;
+                        }
                         remoteListeners.add(listener);
                         remoteEndpoints.add(destination);
+                        allocatedPaths++;
                     }
                 }
 
@@ -272,9 +284,7 @@ public final class MEChannelCallerNetwork {
                     liveBridgeKeys.add(key);
                     clearBridgeFailure(key);
                     for (TileMEChannelCaller listener : remoteListeners) {
-                        for (TileMEChannelCaller sourceCaller : sourceGroup.callers) {
-                            increment(connectedPeers, sourceCaller);
-                        }
+                        increment(connectedPeers, caller);
                         increment(connectedPeers, listener);
                     }
                 } else if (bridge != null) {
@@ -295,7 +305,8 @@ public final class MEChannelCallerNetwork {
             boolean powered = isPowered(endpoint);
             int expected = value(expectedPeers, caller);
             int connected = value(connectedPeers, caller);
-            boolean overloaded = connected > getTransferCapacity();
+            boolean overloaded = capacityBlocked.contains(caller)
+                    || connected > getTransferCapacity();
             boolean complete = expected > 0 && connected >= expected && !overloaded;
             caller.setStatus(overloaded ? TileMEChannelCaller.STATUS_ERROR
                             : complete && powered ? TileMEChannelCaller.STATUS_CONNECTED
@@ -319,22 +330,27 @@ public final class MEChannelCallerNetwork {
         return value == null ? 0 : value;
     }
 
+    private static boolean hasBridgeFromAnotherCaller(
+            UUID id, TileMEChannelCaller caller, TileMEChannelCaller listener,
+            List<TileMEChannelCaller> callers) {
+        if (id == null || caller == null || listener == null || callers == null) {
+            return false;
+        }
+        for (TileMEChannelCaller otherCaller : callers) {
+            if (otherCaller == null || otherCaller == caller) {
+                continue;
+            }
+            CallerBridge bridge = BRIDGES.get(bridgeKey(id, otherCaller));
+            if (bridge != null && bridge.contains(listener) && bridge.isAlive()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static final class ChannelGroup {
         private final List<TileMEChannelCaller> callers = new ArrayList<>();
         private final List<TileMEChannelCaller> listeners = new ArrayList<>();
-        private final List<SourceGroup> sources = new ArrayList<>();
-    }
-
-    /** One physical AE grid supplying a UUID channel. */
-    private static final class SourceGroup {
-        private final TileMEChannelCaller sourceCaller;
-        private final Endpoint source;
-        private final List<TileMEChannelCaller> callers = new ArrayList<>();
-
-        private SourceGroup(TileMEChannelCaller sourceCaller, Endpoint source) {
-            this.sourceCaller = sourceCaller;
-            this.source = source;
-        }
     }
 
     private static boolean hasPoweredEndpoint(TileMEChannelCaller caller) {
@@ -644,7 +660,7 @@ public final class MEChannelCallerNetwork {
         }
     }
 
-    /** One AE2 P2P-style channel bridge for all callers sharing a UUID. */
+    /** One AE2 P2P-style channel bridge for one caller and its listeners. */
     private static final class CallerBridge {
         private final List<TileMEChannelCaller> callers;
         private final List<Endpoint> endpoints;
@@ -755,15 +771,22 @@ public final class MEChannelCallerNetwork {
                     sourceOuter = source.outerNode;
                 }
 
-                IGridConnection connection = connectOuter(sourceOuter, output.outerNode);
-                if (connection == null) {
-                    reportBridgeFailure(callers.get(sourceIndex).getChannelId(),
-                            "could not join source " + describeCaller(callers.get(sourceIndex))
-                                    + " to destination " + describeCaller(callers.get(i)));
-                    result.destroy();
-                    return null;
+                // A previous sender bridge may already have merged these two
+                // endpoint grids. The new sender still owns its own channel
+                // proxy pair, but there is no second outer edge to create in
+                // that case.
+                if (!sameGrid(sourceOuter, output.outerNode)) {
+                    IGridConnection connection = connectOuter(sourceOuter, output.outerNode);
+                    if (connection == null) {
+                        reportBridgeFailure(callers.get(sourceIndex).getChannelId(),
+                                "could not join source "
+                                        + describeCaller(callers.get(sourceIndex))
+                                        + " to destination " + describeCaller(callers.get(i)));
+                        result.destroy();
+                        return null;
+                    }
+                    result.outerConnections.add(connection);
                 }
-                result.outerConnections.add(connection);
                 outputIndex++;
             }
             return result;
@@ -832,7 +855,7 @@ public final class MEChannelCallerNetwork {
         private boolean isAlive() {
             if (outputProxies.size() != callers.size() - 1
                     || sourceProxies.size() + (controllerSource == null ? 0 : 1)
-                    != callers.size() - 1 || outerConnections.size() != callers.size() - 1) {
+                    != callers.size() - 1) {
                 return false;
             }
             if (controllerSource != null && !controllerSource.isAlive()) {
@@ -845,8 +868,12 @@ public final class MEChannelCallerNetwork {
             }
             for (int i = 0; i < outputProxies.size(); i++) {
                 BridgeProxy output = outputProxies.get(i);
-                if (!output.isAlive()
-                        || !hasDirectConnection(getSourceOuter(i), output.outerNode)) {
+                if (!output.isAlive()) {
+                    return false;
+                }
+                IGridNode sourceOuter = getSourceOuter(i);
+                if (!sameGrid(sourceOuter, output.outerNode)
+                        && !hasDirectConnection(sourceOuter, output.outerNode)) {
                     return false;
                 }
             }
@@ -856,7 +883,7 @@ public final class MEChannelCallerNetwork {
         private String getFailureReason() {
             if (outputProxies.size() != callers.size() - 1
                     || sourceProxies.size() + (controllerSource == null ? 0 : 1)
-                    != callers.size() - 1 || outerConnections.size() != callers.size() - 1) {
+                    != callers.size() - 1) {
                 return "bridge proxy or connection count is incomplete";
             }
             if (controllerSource != null && !controllerSource.isAlive()) {
@@ -873,7 +900,9 @@ public final class MEChannelCallerNetwork {
                     return "destination proxy is inactive or outside its local grid at "
                             + describeCaller(callers.get(i < sourceIndex ? i : i + 1));
                 }
-                if (!hasDirectConnection(getSourceOuter(i), output.outerNode)) {
+                IGridNode sourceOuter = getSourceOuter(i);
+                if (!sameGrid(sourceOuter, output.outerNode)
+                        && !hasDirectConnection(sourceOuter, output.outerNode)) {
                     return "outer bridge connection is missing for destination "
                             + describeCaller(callers.get(i < sourceIndex ? i : i + 1));
                 }
@@ -1040,6 +1069,7 @@ public final class MEChannelCallerNetwork {
         private final IGridNode controller;
         private final int requiredFaces;
         private final List<ControllerFace> faces = new ArrayList<>();
+        private final List<AEPartLocation> reservedFaces = new ArrayList<>();
         private final List<IGridConnection> connections = new ArrayList<>();
         private int nextOutput;
         private String failureReason = "controller source setup failed";
@@ -1069,9 +1099,11 @@ public final class MEChannelCallerNetwork {
                     break;
                 }
                 AEPartLocation face = AEPartLocation.fromFacing(facing);
-                if (isControllerFaceUsed(controller, face)) {
+                if (isControllerFaceUsed(controller, face)
+                        || !reserveControllerFace(controller, face)) {
                     continue;
                 }
+                reservedFaces.add(face);
                 ControllerFace proxies = createFaceProxies(face, controllerLocation);
                 if (proxies == null) {
                     failureReason = "could not create proxies for controller face " + face;
@@ -1232,6 +1264,10 @@ public final class MEChannelCallerNetwork {
                 face.outer.invalidate();
             }
             faces.clear();
+            for (AEPartLocation face : new ArrayList<>(reservedFaces)) {
+                releaseControllerFace(controller, face);
+            }
+            reservedFaces.clear();
             nextOutput = 0;
         }
     }
@@ -1252,6 +1288,9 @@ public final class MEChannelCallerNetwork {
     private static boolean isControllerFaceUsed(IGridNode controller,
                                                 AEPartLocation face) {
         if (controller == null || face == null || face.getFacing() == null) {
+            return true;
+        }
+        if (isControllerFaceReserved(controller, face)) {
             return true;
         }
         DimensionalCoord location = null;
@@ -1286,6 +1325,39 @@ public final class MEChannelCallerNetwork {
             return true;
         }
         return false;
+    }
+
+    private static boolean reserveControllerFace(IGridNode controller,
+                                                 AEPartLocation face) {
+        if (controller == null || face == null || face.getFacing() == null) {
+            return false;
+        }
+        Set<AEPartLocation> reserved = RESERVED_CONTROLLER_FACES.get(controller);
+        if (reserved == null) {
+            reserved = EnumSet.noneOf(AEPartLocation.class);
+            RESERVED_CONTROLLER_FACES.put(controller, reserved);
+        }
+        if (!reserved.add(face)) {
+            return false;
+        }
+        return true;
+    }
+
+    private static boolean isControllerFaceReserved(IGridNode controller,
+                                                     AEPartLocation face) {
+        Set<AEPartLocation> reserved = RESERVED_CONTROLLER_FACES.get(controller);
+        return reserved != null && reserved.contains(face);
+    }
+
+    private static void releaseControllerFace(IGridNode controller,
+                                               AEPartLocation face) {
+        Set<AEPartLocation> reserved = RESERVED_CONTROLLER_FACES.get(controller);
+        if (reserved == null || !reserved.remove(face)) {
+            return;
+        }
+        if (reserved.isEmpty()) {
+            RESERVED_CONTROLLER_FACES.remove(controller);
+        }
     }
 
     private static boolean isProxyNode(@Nullable IGridNode node) {
