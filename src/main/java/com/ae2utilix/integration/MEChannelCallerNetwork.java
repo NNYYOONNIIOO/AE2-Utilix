@@ -62,6 +62,7 @@ public final class MEChannelCallerNetwork {
     private static final int MAX_GRID_SCAN = 4096;
     /** Only used when AE2's own configuration cannot be read. */
     private static final int FALLBACK_DENSE_CAPACITY = 32;
+    private static final int FALLBACK_NORMAL_CAPACITY = 8;
 
     /** Deterministic face order, so a given world state always yields the same ports. */
     private static final EnumFacing[] FACE_ORDER = {
@@ -108,6 +109,37 @@ public final class MEChannelCallerNetwork {
             return Math.max(1, AEConfig.instance().getDenseChannelCapacity());
         } catch (Throwable ignored) {
             return FALLBACK_DENSE_CAPACITY;
+        }
+    }
+
+    /** AE2's configured channel capacity per normal (non dense) link. */
+    private static int normalChannelCapacity() {
+        try {
+            return Math.max(1, AEConfig.instance().getNormalChannelCapacity());
+        } catch (Throwable ignored) {
+            return FALLBACK_NORMAL_CAPACITY;
+        }
+    }
+
+    /**
+     * Channels one touched face can actually provide, read from that face's own node
+     * instead of assuming the configured maximum: a face on a normal cable only supplies
+     * the normal capacity, a face on dense cable or a controller supplies the dense
+     * capacity, and a node that cannot carry channels supplies none.
+     */
+    private static int faceChannelCapacity(@Nullable IGridNode node) {
+        try {
+            if (node == null) {
+                return 0;
+            }
+            if (node.hasFlag(GridFlags.CANNOT_CARRY)) {
+                // A controller cannot carry channels but its faces hand them out.
+                return node.hasFlag(GridFlags.DENSE_CAPACITY) ? denseChannelCapacity() : 0;
+            }
+            return node.hasFlag(GridFlags.DENSE_CAPACITY)
+                    ? denseChannelCapacity() : normalChannelCapacity();
+        } catch (Throwable ignored) {
+            return 0;
         }
     }
 
@@ -501,26 +533,28 @@ public final class MEChannelCallerNetwork {
             int receivers = 0;
             int granted = 0;
             int supplied = 0;
+            int supplyMax = 0;
             for (Port port : ports) {
                 if (port.spec.sender) {
                     senders++;
                     supplied += port.usedChannels();
+                    supplyMax += faceChannelCapacity(port.spec.target);
                 } else {
                     receivers++;
                     granted += port.usedChannels();
                 }
             }
             this.occupied = granted;
-            int capacity = denseChannelCapacity();
-            // The reported limit is what the caller side actually provides: every touched
-            // sender face can contribute one configured capacity worth of channels.
-            this.maxChannels = senders * capacity;
+            // The reported limit is what the caller side actually provides: the sum of the
+            // channels its touched faces can carry, so a face on a normal cable only
+            // contributes the normal capacity instead of the configured dense maximum.
+            this.maxChannels = supplyMax;
             // Overload needs both halves to be true: this link must actually be drawing
             // everything its sender faces can give, and the receiver side must still want
             // more than it received. A link with spare supply is never reported as
             // overloaded just because some devices elsewhere were refused channels.
             this.overloaded = senders > 0 && receivers > 0 && maxChannels > 0
-                    && supplied >= senders * capacity
+                    && supplied >= supplyMax
                     && requestedCapacity() > supplied;
         }
 
@@ -531,14 +565,15 @@ public final class MEChannelCallerNetwork {
          * that is overloaded by its own devices only ever counts as one face.
          */
         private int requestedCapacity() {
-            int capacity = denseChannelCapacity();
             List<Port> receivers = new ArrayList<Port>();
+            List<Integer> faceLimits = new ArrayList<Integer>();
             for (Port port : ports) {
                 if (!port.spec.sender) {
                     receivers.add(port);
+                    faceLimits.add(faceChannelCapacity(port.spec.target));
                 }
             }
-            if (receivers.isEmpty() || capacity <= 0) {
+            if (receivers.isEmpty()) {
                 return 0;
             }
             int[] demand = new int[receivers.size()];
@@ -596,7 +631,8 @@ public final class MEChannelCallerNetwork {
             }
             int total = 0;
             for (int i = 0; i < demand.length; i++) {
-                total += Math.min(demand[i], capacity);
+                // Each face can only ever deliver what that face itself can carry.
+                total += Math.min(demand[i], faceLimits.get(i));
             }
             return total;
         }
