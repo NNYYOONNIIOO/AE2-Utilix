@@ -542,7 +542,12 @@ public final class MEChannelCallerNetwork {
         }
 
         private boolean isAlive() {
-            if (hub.getNode() == null || hub.getNode().getGrid() == null) {
+            // The hub only needs to exist; it has no world connections of its own.
+            if (hub.getNode() == null) {
+                return false;
+            }
+            // A port that failed to attach must be retried instead of staying missing.
+            if (ports.size() != specs.size()) {
                 return false;
             }
             for (Port port : ports) {
