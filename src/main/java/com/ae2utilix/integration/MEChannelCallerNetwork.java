@@ -477,14 +477,19 @@ public final class MEChannelCallerNetwork {
                     listeners.add(port);
                 }
             }
-            // One link per sender/receiver pair: a shared intermediate node would itself
-            // become a channel bottleneck instead of the controller deciding the limits.
-            for (Port sender : senders) {
-                for (Port listener : listeners) {
-                    IGridConnection link = sender.linkTo(listener.node());
-                    if (link != null) {
-                        links.add(link);
-                    }
+            // AE2 gives every node exactly one route back to the controller, so a fully
+            // meshed link would make the whole receiver side hang off a single sender and
+            // share that one port's channel budget. Pairing each receiver with its own
+            // sender keeps the pairs on separate paths, which is what lets every touched
+            // face carry up to AE2's configured capacity independently.
+            if (senders.isEmpty() || listeners.isEmpty()) {
+                return;
+            }
+            for (int i = 0; i < listeners.size(); i++) {
+                Port sender = senders.get(i % senders.size());
+                IGridConnection link = sender.linkTo(listeners.get(i).node());
+                if (link != null) {
+                    links.add(link);
                 }
             }
         }
