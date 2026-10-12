@@ -590,13 +590,12 @@ public final class MEChannelCallerNetwork {
             AENetworkProxy proxy = new AENetworkProxy(host,
                     "me_channel_caller_port_" + index, ItemStack.EMPTY, false);
             host.setProxy(proxy);
-            if (spec.sender) {
-                // Draws channels from the touched face, like an ME P2P input.
-                proxy.setFlags(GridFlags.REQUIRE_CHANNEL, GridFlags.COMPRESSED_CHANNEL);
-            } else {
-                // Carries those channels into the touched block, like an ME P2P output.
-                proxy.setFlags(GridFlags.DENSE_CAPACITY, GridFlags.CANNOT_CARRY_COMPRESSED);
-            }
+            // Both ends are pure dense path nodes. Requesting a channel here would spend
+            // one of this node's own slots (AE2 counts the requirement on the node it
+            // belongs to), so a 32 channel link could only pass 31 channels through.
+            // Leaving the flags off keeps the whole capacity available for the traffic and
+            // lets AE2's controller stay the only authority on channel numbers.
+            proxy.setFlags(GridFlags.DENSE_CAPACITY);
             proxy.setValidSides(EnumSet.noneOf(EnumFacing.class));
             proxy.onReady();
             IGridNode node = proxy.getNode();
