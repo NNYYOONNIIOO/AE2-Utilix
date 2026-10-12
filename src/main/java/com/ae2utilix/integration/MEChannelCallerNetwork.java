@@ -508,22 +508,34 @@ public final class MEChannelCallerNetwork {
                     granted += port.usedChannels();
                 }
             }
-            // Refused requests are the only real overload signal: AE2 never lets the
-            // granted count pass the limit, so a full link is only overloaded when
-            // something behind the receivers asked for a channel and did not get one.
-            int refused = countRefusedChannelRequests();
-            this.occupied = granted + refused;
+            this.occupied = granted;
             this.maxChannels = Math.min(senders, receivers) * denseChannelCapacity();
+            // Overload means this link cannot serve the faces it feeds, so the receiver
+            // side's demand is compared against what the senders can supply. Demand is
+            // capped per face, so a single cable that is overloaded by its own devices
+            // never shows up as an overload of this link.
             this.overloaded = senders > 0 && receivers > 0 && maxChannels > 0
-                    && refused > 0 && granted >= maxChannels;
+                    && requestedCapacity() > senders * denseChannelCapacity();
         }
 
         /**
-         * Counts channel requests behind the receiver ports that AE2 could not satisfy.
-         * The walk starts at the touched blocks and never crosses one of our own ports, so
-         * the sender side's own devices can never be mistaken for receiver demand.
+         * Channels the receiver side wants through this link, summed over the touched
+         * faces with every face capped at its own capacity. Each device is attributed to
+         * the face AE2 would route it through, so nothing is counted twice and a cable
+         * that is overloaded by its own devices only ever counts as one face.
          */
-        private int countRefusedChannelRequests() {
+        private int requestedCapacity() {
+            int capacity = denseChannelCapacity();
+            List<Port> receivers = new ArrayList<Port>();
+            for (Port port : ports) {
+                if (!port.spec.sender) {
+                    receivers.add(port);
+                }
+            }
+            if (receivers.isEmpty() || capacity <= 0) {
+                return 0;
+            }
+            int[] demand = new int[receivers.size()];
             Set<IGridNode> portNodes = Collections.newSetFromMap(
                     new IdentityHashMap<IGridNode, Boolean>());
             for (Port port : ports) {
@@ -532,29 +544,29 @@ public final class MEChannelCallerNetwork {
                     portNodes.add(node);
                 }
             }
-            Set<IGridNode> visited = Collections.newSetFromMap(
-                    new IdentityHashMap<IGridNode, Boolean>());
+            Map<IGridNode, Integer> origin = new IdentityHashMap<IGridNode, Integer>();
             ArrayDeque<IGridNode> queue = new ArrayDeque<IGridNode>();
-            for (Port port : ports) {
-                if (port.spec.sender) {
-                    continue;
-                }
-                IGridNode start = port.spec.target;
-                if (start != null && visited.add(start)) {
+            for (int i = 0; i < receivers.size(); i++) {
+                IGridNode start = receivers.get(i).spec.target;
+                if (start != null && !origin.containsKey(start)) {
+                    origin.put(start, i);
                     queue.add(start);
                 }
             }
-            int refused = 0;
             int scanned = 0;
             while (!queue.isEmpty() && scanned++ < MAX_GRID_SCAN) {
                 IGridNode node = queue.poll();
                 if (portNodes.contains(node)) {
+                    // Never walk out of the receiver side through a synthetic port.
+                    continue;
+                }
+                Integer source = origin.get(node);
+                if (source == null) {
                     continue;
                 }
                 try {
-                    if (node.hasFlag(GridFlags.REQUIRE_CHANNEL)
-                            && !node.meetsChannelRequirements()) {
-                        refused++;
+                    if (node.hasFlag(GridFlags.REQUIRE_CHANNEL)) {
+                        demand[source]++;
                     }
                 } catch (Throwable ignored) {
                 }
@@ -568,14 +580,19 @@ public final class MEChannelCallerNetwork {
                 for (IGridConnection connection : connections) {
                     try {
                         IGridNode other = connection.getOtherSide(node);
-                        if (other != null && visited.add(other)) {
+                        if (other != null && !origin.containsKey(other)) {
+                            origin.put(other, source);
                             queue.add(other);
                         }
                     } catch (Throwable ignored) {
                     }
                 }
             }
-            return refused;
+            int total = 0;
+            for (int i = 0; i < demand.length; i++) {
+                total += Math.min(demand[i], capacity);
+            }
+            return total;
         }
 
         private boolean matches(List<PortSpec> current) {
