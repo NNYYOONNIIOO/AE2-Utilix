@@ -256,6 +256,10 @@ public final class MEChannelCallerNetwork {
             }
         }
 
+        // Every sender face is priced against the controller face that feeds it, so faces
+        // sharing one controller face cannot each claim the full amount.
+        assignProvidedCapacity(membersById, specsByCaller, allPortNodes());
+
         // A UUID whose last block was removed drops its links entirely.
         for (UUID id : new ArrayList<UUID>(GROUPS.keySet())) {
             if (!membersById.containsKey(id)) {
@@ -285,6 +289,8 @@ public final class MEChannelCallerNetwork {
                 } else {
                     GROUPS.put(entry.getKey(), group);
                 }
+            } else {
+                group.syncProvided(specs);
             }
             if (group != null) {
                 // Channel usage changes every tick, so it must be re-read, never cached.
@@ -442,12 +448,180 @@ public final class MEChannelCallerNetwork {
         }
     }
 
+    /** AE2's controllers are the only blocks that hand out channels without carrying them. */
+    private static boolean isChannelSource(@Nullable IGridNode node) {
+        try {
+            return node != null && node.hasFlag(GridFlags.CANNOT_CARRY)
+                    && node.hasFlag(GridFlags.DENSE_CAPACITY);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    /** Every synthetic port node of every group, so a walk can never leave a real network. */
+    private static Set<IGridNode> allPortNodes() {
+        Set<IGridNode> nodes = Collections.newSetFromMap(
+                new IdentityHashMap<IGridNode, Boolean>());
+        for (ChannelGroup group : GROUPS.values()) {
+            if (group == null) {
+                continue;
+            }
+            for (Port port : group.ports) {
+                IGridNode node = port.node();
+                if (node != null) {
+                    nodes.add(node);
+                }
+            }
+        }
+        return nodes;
+    }
+
+    /**
+     * Works out how many channels every sender face can really bring in.
+     *
+     * <p>A controller face is one shared pool of channels: when several caller faces trace
+     * back to the same controller face, each one takes what its own path can carry and
+     * leaves the rest for the others, so they can never add up to more than the controller
+     * face can hand out. This is what stops a dense cable attached to a caller from making
+     * channels appear out of nowhere.</p>
+     *
+     * <p>When a UUID has no controller anywhere on its caller side, AE2 only serves such a
+     * network up to the normal capacity, so every caller face reports that same ceiling.</p>
+     */
+    private static void assignProvidedCapacity(
+            Map<UUID, List<TileMEChannelCaller>> membersById,
+            Map<TileMEChannelCaller, List<PortSpec>> specsByCaller,
+            Set<IGridNode> portNodes) {
+        Map<Object, Integer> remaining = new IdentityHashMap<Object, Integer>();
+        for (List<TileMEChannelCaller> members : membersById.values()) {
+            List<PortSpec> senders = new ArrayList<PortSpec>();
+            for (TileMEChannelCaller caller : members) {
+                List<PortSpec> specs = specsByCaller.get(caller);
+                if (specs == null) {
+                    continue;
+                }
+                for (PortSpec spec : specs) {
+                    if (spec.sender) {
+                        senders.add(spec);
+                    }
+                }
+            }
+            if (senders.isEmpty()) {
+                continue;
+            }
+            Map<PortSpec, SourceRef> refs = new IdentityHashMap<PortSpec, SourceRef>();
+            boolean anyController = false;
+            for (PortSpec spec : senders) {
+                SourceRef ref = traceSource(spec.target, portNodes);
+                if (ref != null) {
+                    refs.put(spec, ref);
+                    anyController = true;
+                }
+            }
+            for (PortSpec spec : senders) {
+                SourceRef ref = refs.get(spec);
+                if (ref == null) {
+                    spec.provided = anyController ? 0
+                            : Math.min(faceChannelCapacity(spec.target), normalChannelCapacity());
+                    continue;
+                }
+                Integer left = remaining.get(ref.faceKey);
+                int budget = left == null ? denseChannelCapacity() : left;
+                int give = Math.max(0, Math.min(ref.bottleneck, budget));
+                remaining.put(ref.faceKey, budget - give);
+                spec.provided = give;
+            }
+        }
+    }
+
+    /** The controller face a caller is fed from, plus what that path can carry. */
+    private static final class SourceRef {
+        private final Object faceKey;
+        private final int bottleneck;
+
+        private SourceRef(Object faceKey, int bottleneck) {
+            this.faceKey = faceKey;
+            this.bottleneck = bottleneck;
+        }
+    }
+
+    /**
+     * Traces a sender face back to its controller by widest path: the narrowest carrying
+     * node between the controller and the face decides how much that path can carry, and
+     * the edge leaving the controller identifies the controller face that pays for it.
+     */
+    @Nullable
+    private static SourceRef traceSource(@Nullable IGridNode face, Set<IGridNode> excluded) {
+        if (face == null) {
+            return null;
+        }
+        int faceLevel = faceChannelCapacity(face);
+        if (faceLevel <= 0) {
+            return null;
+        }
+        if (isChannelSource(face)) {
+            // The caller touches a controller directly; each caller face is its own face.
+            return new SourceRef(face, faceLevel);
+        }
+        Map<IGridNode, Integer> best = new IdentityHashMap<IGridNode, Integer>();
+        ArrayDeque<IGridNode> queue = new ArrayDeque<IGridNode>();
+        best.put(face, faceLevel);
+        queue.add(face);
+        SourceRef result = null;
+        int scanned = 0;
+        while (!queue.isEmpty() && scanned++ < MAX_GRID_SCAN) {
+            IGridNode node = queue.poll();
+            Integer running = best.get(node);
+            if (running == null) {
+                continue;
+            }
+            List<IGridConnection> connections = new ArrayList<IGridConnection>();
+            try {
+                for (IGridConnection connection : node.getConnections()) {
+                    connections.add(connection);
+                }
+            } catch (Throwable ignored) {
+            }
+            for (IGridConnection connection : connections) {
+                IGridNode other;
+                try {
+                    other = connection.getOtherSide(node);
+                } catch (Throwable ignored) {
+                    continue;
+                }
+                if (other == null || excluded.contains(other)) {
+                    continue;
+                }
+                if (isChannelSource(other)) {
+                    // The edge leaving the controller is the controller face itself.
+                    if (result == null || running > result.bottleneck) {
+                        result = new SourceRef(connection, running);
+                    }
+                    continue;
+                }
+                int level = faceChannelCapacity(other);
+                if (level <= 0) {
+                    continue;
+                }
+                int candidate = Math.min(running, level);
+                Integer existing = best.get(other);
+                if (existing == null || candidate > existing) {
+                    best.put(other, candidate);
+                    queue.add(other);
+                }
+            }
+        }
+        return result;
+    }
+
     /** The ME block touched through one face, plus the caller that touches it. */
     private static final class PortSpec {
         private final TileMEChannelCaller owner;
         private final EnumFacing face;
         private final IGridNode target;
         private final boolean sender;
+        /** Channels this face can actually bring in, filled in once per reconcile pass. */
+        private int provided;
 
         private PortSpec(TileMEChannelCaller owner, EnumFacing face, IGridNode target) {
             this.owner = owner;
@@ -543,10 +717,9 @@ public final class MEChannelCallerNetwork {
                 }
             }
             this.occupied = granted;
-            // The reported limit is what the caller side can really be fed: every touched
-            // face is traced back to its channel source and the narrowest node on that path
-            // decides how many channels can actually arrive there.
-            this.maxChannels = providedCapacity();
+            // The reported limit is what the caller side can really be fed, as worked out
+            // for this pass by the shared controller face accounting.
+            this.maxChannels = totalProvided();
             // Overload needs both halves to be true: this link must actually be drawing
             // everything the source can feed it, and the receiver side must still want
             // more than it received. A link with spare supply is never reported as
@@ -556,108 +729,22 @@ public final class MEChannelCallerNetwork {
                     && requestedCapacity() > supplied;
         }
 
-        /**
-         * Channels that can actually be fed into all touched sender faces. Each face is
-         * traced outward across its own network only: the walk never leaves through one of
-         * our ports, so a caller on the receiving side can never inflate the number, and a
-         * controller terminates the walk because it is the channel source itself.
-         */
-        private int providedCapacity() {
-            Set<IGridNode> portNodes = Collections.newSetFromMap(
-                    new IdentityHashMap<IGridNode, Boolean>());
-            for (Port port : ports) {
-                IGridNode node = port.node();
-                if (node != null) {
-                    portNodes.add(node);
-                }
-            }
+        /** Sum of what the source side can feed into the touched sender faces. */
+        private int totalProvided() {
             int total = 0;
-            for (Port port : ports) {
-                if (port.spec.sender) {
-                    total += upstreamCapacity(port.spec.target, portNodes);
-                }
+            for (PortSpec spec : specs) {
+                total += spec.provided;
             }
             return total;
         }
 
-        /**
-         * Widest path from any channel source back to this face. The narrowest carrying
-         * node on that path is what the face can really receive, so a dense cable fed by a
-         * normal cable reports the normal capacity instead of its own dense capacity.
-         */
-        private static int upstreamCapacity(@Nullable IGridNode face, Set<IGridNode> portNodes) {
-            if (face == null) {
-                return 0;
+        /** Copies this pass's allowances onto the cached specs of a kept group. */
+        private void syncProvided(List<PortSpec> fresh) {
+            if (fresh == null || fresh.size() != specs.size()) {
+                return;
             }
-            int faceLevel = faceChannelCapacity(face);
-            if (faceLevel <= 0) {
-                return 0;
-            }
-            if (isChannelSource(face)) {
-                return faceLevel;
-            }
-            Map<IGridNode, Integer> best = new IdentityHashMap<IGridNode, Integer>();
-            ArrayDeque<IGridNode> queue = new ArrayDeque<IGridNode>();
-            best.put(face, faceLevel);
-            queue.add(face);
-            int fromSource = 0;
-            boolean sourceFound = false;
-            int scanned = 0;
-            while (!queue.isEmpty() && scanned++ < MAX_GRID_SCAN) {
-                IGridNode node = queue.poll();
-                Integer running = best.get(node);
-                if (running == null) {
-                    continue;
-                }
-                List<IGridConnection> connections = new ArrayList<IGridConnection>();
-                try {
-                    for (IGridConnection connection : node.getConnections()) {
-                        connections.add(connection);
-                    }
-                } catch (Throwable ignored) {
-                }
-                for (IGridConnection connection : connections) {
-                    IGridNode other;
-                    try {
-                        other = connection.getOtherSide(node);
-                    } catch (Throwable ignored) {
-                        continue;
-                    }
-                    if (other == null || portNodes.contains(other)) {
-                        continue;
-                    }
-                    if (isChannelSource(other)) {
-                        sourceFound = true;
-                        fromSource = Math.max(fromSource, running);
-                        // The controller is the source; nothing behind it belongs to this path.
-                        continue;
-                    }
-                    int level = faceChannelCapacity(other);
-                    if (level <= 0) {
-                        continue;
-                    }
-                    int candidate = Math.min(running, level);
-                    Integer existing = best.get(other);
-                    if (existing == null || candidate > existing) {
-                        best.put(other, candidate);
-                        queue.add(other);
-                    }
-                }
-            }
-            if (sourceFound) {
-                return fromSource;
-            }
-            // Without a controller AE2 only serves ad hoc networks up to the normal
-            // capacity, so that is the most a face can be fed in such a network.
-            return Math.min(faceLevel, normalChannelCapacity());
-        }
-
-        private static boolean isChannelSource(@Nullable IGridNode node) {
-            try {
-                return node != null && node.hasFlag(GridFlags.CANNOT_CARRY)
-                        && node.hasFlag(GridFlags.DENSE_CAPACITY);
-            } catch (Throwable ignored) {
-                return false;
+            for (int i = 0; i < specs.size(); i++) {
+                specs.get(i).provided = fresh.get(i).provided;
             }
         }
 
