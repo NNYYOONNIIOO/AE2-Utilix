@@ -258,7 +258,7 @@ public final class MEChannelCallerNetwork {
 
         // One budget per controller face is shared by every sender face it feeds, so the
         // faces can never add up to more than the controller face can hand out.
-        Set<IGridNode> portNodes = allPortNodes();
+        Set<IGridNode> portNodes = allPortNodes(callers);
         Map<Object, Integer> remaining = new IdentityHashMap<Object, Integer>();
 
         // A UUID whose last block was removed drops its links entirely.
@@ -464,8 +464,8 @@ public final class MEChannelCallerNetwork {
         }
     }
 
-    /** Every synthetic port node of every group, so a walk can never leave a real network. */
-    private static Set<IGridNode> allPortNodes() {
+    /** Nodes a walk must never cross: every synthetic port and every block of ours. */
+    private static Set<IGridNode> allPortNodes(List<TileMEChannelCaller> callers) {
         Set<IGridNode> nodes = Collections.newSetFromMap(
                 new IdentityHashMap<IGridNode, Boolean>());
         for (ChannelGroup group : GROUPS.values()) {
@@ -479,7 +479,56 @@ public final class MEChannelCallerNetwork {
                 }
             }
         }
+        for (TileMEChannelCaller caller : callers) {
+            IGridNode owner = caller == null ? null : caller.getProxy().getNode();
+            if (owner != null) {
+                nodes.add(owner);
+            }
+        }
         return nodes;
+    }
+
+    /**
+     * Identity of the controller-less network a face belongs to. Every node reachable from
+     * that face without crossing one of our own blocks is part of the same network, so the
+     * smallest identity in that set is stable for all faces of one network.
+     */
+    @Nullable
+    private static Object networkKey(@Nullable IGridNode face, Set<IGridNode> excluded) {
+        if (face == null) {
+            return null;
+        }
+        Set<IGridNode> visited = Collections.newSetFromMap(
+                new IdentityHashMap<IGridNode, Boolean>());
+        ArrayDeque<IGridNode> queue = new ArrayDeque<IGridNode>();
+        visited.add(face);
+        queue.add(face);
+        int best = System.identityHashCode(face);
+        int scanned = 0;
+        while (!queue.isEmpty() && scanned++ < MAX_GRID_SCAN) {
+            IGridNode node = queue.poll();
+            List<IGridConnection> connections = new ArrayList<IGridConnection>();
+            try {
+                for (IGridConnection connection : node.getConnections()) {
+                    connections.add(connection);
+                }
+            } catch (Throwable ignored) {
+            }
+            for (IGridConnection connection : connections) {
+                IGridNode other;
+                try {
+                    other = connection.getOtherSide(node);
+                } catch (Throwable ignored) {
+                    continue;
+                }
+                if (other == null || excluded.contains(other) || !visited.add(other)) {
+                    continue;
+                }
+                best = Math.min(best, System.identityHashCode(other));
+                queue.add(other);
+            }
+        }
+        return Integer.valueOf(best);
     }
 
     /**
@@ -520,15 +569,29 @@ public final class MEChannelCallerNetwork {
         if (!anyController) {
             // Without a controller AE2 only serves such a network up to the normal
             // capacity, and every block in that network sees the very same number. It is
-            // therefore reported once for the whole group instead of once per touched face,
-            // which would otherwise multiply the same channel supply by the face count.
-            int level = 0;
+            // therefore reported once per source network instead of once per touched face,
+            // which would otherwise multiply that supply by the number of faces.
+            Map<PortSpec, Object> keys = new IdentityHashMap<PortSpec, Object>();
+            Map<Object, Integer> levelByNetwork = new IdentityHashMap<Object, Integer>();
             for (PortSpec spec : senders) {
-                level = Math.max(level, faceChannelCapacity(spec.target));
+                Object key = networkKey(spec.target, portNodes);
+                keys.put(spec, key);
+                int level = faceChannelCapacity(spec.target);
+                Integer best = levelByNetwork.get(key);
+                if (best == null || level > best) {
+                    levelByNetwork.put(key, level);
+                }
             }
-            int shared = Math.min(level, normalChannelCapacity());
-            for (int i = 0; i < senders.size(); i++) {
-                senders.get(i).provided = i == 0 ? shared : 0;
+            Map<Object, Boolean> assigned = new IdentityHashMap<Object, Boolean>();
+            for (PortSpec spec : senders) {
+                Object key = keys.get(spec);
+                if (key == null || assigned.containsKey(key)) {
+                    spec.provided = 0;
+                    continue;
+                }
+                assigned.put(key, Boolean.TRUE);
+                Integer level = levelByNetwork.get(key);
+                spec.provided = Math.min(level == null ? 0 : level, normalChannelCapacity());
             }
             return;
         }
@@ -830,6 +893,10 @@ public final class MEChannelCallerNetwork {
                 IGridNode node = port.node();
                 if (node != null) {
                     portNodes.add(node);
+                }
+                IGridNode owner = port.spec.owner.getProxy().getNode();
+                if (owner != null) {
+                    portNodes.add(owner);
                 }
             }
             Map<IGridNode, Integer> origin = new IdentityHashMap<IGridNode, Integer>();
