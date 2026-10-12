@@ -2,7 +2,6 @@ package com.ae2utilix.integration;
 
 import appeng.api.AEApi;
 import appeng.api.networking.GridFlags;
-import appeng.api.networking.IGrid;
 import appeng.api.networking.IGridConnection;
 import appeng.api.networking.IGridHost;
 import appeng.api.networking.IGridNode;
@@ -12,6 +11,7 @@ import appeng.api.parts.IPartHost;
 import appeng.api.util.AECableType;
 import appeng.api.util.AEPartLocation;
 import appeng.api.util.DimensionalCoord;
+import appeng.core.AEConfig;
 import appeng.me.GridConnection;
 import appeng.me.helpers.AENetworkProxy;
 import appeng.me.helpers.IGridProxyable;
@@ -41,28 +41,26 @@ import java.util.UUID;
 import java.util.WeakHashMap;
 
 /**
- * Wires ME channel callers and ME channel listeners into UUID scoped links.
+ * Wires ME channel callers (senders) and ME channel listeners (receivers) into UUID
+ * scoped links.
  *
- * <p>A caller (sender) owns one port per ME block it physically touches. Each port is a
- * compressed-channel consumer, so it draws channels from exactly the touched face and
- * never from an unrelated block that merely happens to share the same network.</p>
+ * <p>Every caller and listener owns one port per ME block it physically touches, and the
+ * ports of one UUID are joined directly to each other. A sender port is a compressed
+ * channel consumer, so it draws channels from exactly the touched face; a receiver port is
+ * a dense channel carrier, so the touched block receives those channels. There is no
+ * artificial channel limit in this class: how many channels travel is decided by AE2
+ * itself, which reads its own limits (including the configured controller capacity) from
+ * {@link AEConfig}. One UUID may hold any number of callers and listeners.</p>
  *
- * <p>A listener (receiver) owns one port per touched ME block as well. Those ports are
- * dense channel carriers, so the touched block gains the channels that the senders made
- * available. Every port carrying the same UUID shares one synthetic hub, which is what
- * lets several senders contribute their channels to one UUID without a caller ever being
- * treated as another caller's destination.</p>
- *
- * <p>The synthetic nodes are never world accessible and are never placed on a controller
- * face the mod does not physically touch. AE2's own path finding therefore decides how
- * many channels a port can draw, and any network not touched by a caller or listener keeps
- * its channels exactly as before.</p>
+ * <p>Synthetic nodes are never world accessible and are never placed on a controller face
+ * the mod does not physically touch, so a network that is not touched by a caller or
+ * listener keeps its channel allocation untouched.</p>
  */
 public final class MEChannelCallerNetwork {
     private static final long REFRESH_INTERVAL = 10L;
-    /** Channel capacity of one dense AE2 link; one sender port contributes this much. */
-    private static final int DENSE_CHANNEL_CAPACITY = 32;
     private static final int MAX_GRID_SCAN = 4096;
+    /** Only used when AE2's own configuration cannot be read. */
+    private static final int FALLBACK_DENSE_CAPACITY = 32;
 
     /** Deterministic face order, so a given world state always yields the same ports. */
     private static final EnumFacing[] FACE_ORDER = {
@@ -101,6 +99,15 @@ public final class MEChannelCallerNetwork {
             };
 
     private MEChannelCallerNetwork() {
+    }
+
+    /** AE2's configured channel capacity per dense link; never a value of our own. */
+    private static int denseChannelCapacity() {
+        try {
+            return Math.max(1, AEConfig.instance().getDenseChannelCapacity());
+        } catch (Throwable ignored) {
+            return FALLBACK_DENSE_CAPACITY;
+        }
     }
 
     public static void register(TileMEChannelCaller caller) {
@@ -216,7 +223,7 @@ public final class MEChannelCallerNetwork {
             }
         }
 
-        // A UUID whose last block was removed drops its hub and ports entirely.
+        // A UUID whose last block was removed drops its links entirely.
         for (UUID id : new ArrayList<UUID>(GROUPS.keySet())) {
             if (!membersById.containsKey(id)) {
                 destroyGroup(GROUPS.remove(id));
@@ -246,6 +253,10 @@ public final class MEChannelCallerNetwork {
                     GROUPS.put(entry.getKey(), group);
                 }
             }
+            if (group != null) {
+                // Channel usage changes every tick, so it must be re-read, never cached.
+                group.refreshMetrics();
+            }
 
             for (TileMEChannelCaller caller : entry.getValue()) {
                 applyStatus(caller, group, specsByCaller.get(caller));
@@ -269,35 +280,34 @@ public final class MEChannelCallerNetwork {
             caller.setStatus(powered ? TileMEChannelCaller.STATUS_ERROR
                             : TileMEChannelCaller.STATUS_OFF,
                     powered ? TileMEChannelCaller.REASON_MISSING
-                            : TileMEChannelCaller.REASON_NONE, 0);
+                            : TileMEChannelCaller.REASON_NONE, 0, 0);
             return;
         }
         if (specs == null || specs.isEmpty()) {
-            // The caller does not touch any channel bearing block yet.
             caller.setStatus(TileMEChannelCaller.STATUS_ERROR,
-                    TileMEChannelCaller.REASON_AMBIGUOUS, 0);
+                    TileMEChannelCaller.REASON_AMBIGUOUS, 0, 0);
             return;
         }
         if (group == null) {
             caller.setStatus(isPowered(specs) ? TileMEChannelCaller.STATUS_ERROR
                             : TileMEChannelCaller.STATUS_OFF,
-                    TileMEChannelCaller.REASON_MISSING, 0);
+                    TileMEChannelCaller.REASON_MISSING, 0, 0);
             return;
         }
 
         boolean powered = group.isPowered();
         if (group.overloaded) {
             caller.setStatus(TileMEChannelCaller.STATUS_ERROR,
-                    TileMEChannelCaller.REASON_OVERLOADED, group.channels);
+                    TileMEChannelCaller.REASON_OVERLOADED, group.occupied, group.maxChannels);
         } else if (powered && group.isComplete()) {
             caller.setStatus(TileMEChannelCaller.STATUS_CONNECTED,
-                    TileMEChannelCaller.REASON_NONE, group.channels);
+                    TileMEChannelCaller.REASON_NONE, group.occupied, group.maxChannels);
         } else if (powered) {
             caller.setStatus(TileMEChannelCaller.STATUS_ERROR,
-                    TileMEChannelCaller.REASON_MISSING, 0);
+                    TileMEChannelCaller.REASON_MISSING, 0, 0);
         } else {
             caller.setStatus(TileMEChannelCaller.STATUS_OFF,
-                    TileMEChannelCaller.REASON_NONE, 0);
+                    TileMEChannelCaller.REASON_NONE, 0, 0);
         }
     }
 
@@ -419,91 +429,39 @@ public final class MEChannelCallerNetwork {
         }
     }
 
-    /** All ports that share one UUID, joined by a single synthetic hub node. */
+    /** Every port that shares one UUID, linked sender to receiver. */
     private static final class ChannelGroup {
         private final UUID id;
         private final List<PortSpec> specs;
         private final List<Port> ports = new ArrayList<Port>();
         private final List<IGridConnection> links = new ArrayList<IGridConnection>();
-        private final AENetworkProxy hub;
-        private final boolean overloaded;
-        private final int channels;
 
-        private ChannelGroup(UUID id, List<PortSpec> specs, AENetworkProxy hub,
-                             boolean overloaded, int channels) {
+        private int occupied;
+        private int maxChannels;
+        private boolean overloaded;
+
+        private ChannelGroup(UUID id, List<PortSpec> specs) {
             this.id = id;
             this.specs = specs;
-            this.hub = hub;
-            this.overloaded = overloaded;
-            this.channels = channels;
         }
 
-        /**
-         * Builds every port and the hub. Channel demand is measured before any synthetic
-         * edge exists, so it still describes the real networks that are being linked.
-         */
         @Nullable
         private static ChannelGroup create(UUID id, List<PortSpec> specs) {
             if (id == null || specs == null || specs.isEmpty()) {
                 return null;
             }
-            int senderPorts = 0;
-            Set<Object> senderGrids = Collections.newSetFromMap(
-                    new IdentityHashMap<Object, Boolean>());
-            for (PortSpec spec : specs) {
-                if (spec.sender) {
-                    senderPorts++;
-                    Object grid = gridOf(spec.target);
-                    if (grid != null) {
-                        senderGrids.add(grid);
-                    }
-                }
-            }
-            int demand = 0;
-            int scanned = 0;
-            for (PortSpec spec : specs) {
-                if (spec.sender) {
-                    continue;
-                }
-                Object grid = gridOf(spec.target);
-                if (grid == null || senderGrids.contains(grid)) {
-                    continue;
-                }
-                for (IGridNode node : nodesOf(grid)) {
-                    if (++scanned > MAX_GRID_SCAN) {
-                        break;
-                    }
-                    try {
-                        if (node != null && node.hasFlag(GridFlags.REQUIRE_CHANNEL)) {
-                            demand++;
-                        }
-                    } catch (Throwable ignored) {
-                    }
-                }
-            }
-
-            DimensionalCoord location = new DimensionalCoord(
-                    specs.get(0).owner.getWorld(), specs.get(0).owner.getPos());
-            ProxyHost host = new ProxyHost(location);
-            AENetworkProxy hub = new AENetworkProxy(host,
-                    "me_channel_caller_hub", ItemStack.EMPTY, false);
-            host.setProxy(hub);
-            hub.setFlags(GridFlags.DENSE_CAPACITY, GridFlags.CANNOT_CARRY_COMPRESSED);
-            hub.setValidSides(EnumSet.noneOf(EnumFacing.class));
-            hub.onReady();
-            if (hub.getNode() == null) {
-                hub.invalidate();
+            ChannelGroup group = new ChannelGroup(id, specs);
+            group.buildPorts();
+            if (group.ports.isEmpty()) {
+                group.destroy();
                 return null;
             }
-
-            int capacity = senderPorts * DENSE_CHANNEL_CAPACITY;
-            ChannelGroup group = new ChannelGroup(id, specs, hub,
-                    capacity > 0 && demand > capacity, Math.min(demand, capacity));
-            group.buildPorts();
             return group;
         }
 
         private void buildPorts() {
+            List<Port> senders = new ArrayList<Port>();
+            List<Port> listeners = new ArrayList<Port>();
             int index = 0;
             for (PortSpec spec : specs) {
                 Port port = Port.create(spec, index++);
@@ -513,11 +471,40 @@ public final class MEChannelCallerNetwork {
                     continue;
                 }
                 ports.add(port);
-                IGridConnection link = port.linkTo(hub.getNode());
-                if (link != null) {
-                    links.add(link);
+                if (spec.sender) {
+                    senders.add(port);
+                } else {
+                    listeners.add(port);
                 }
             }
+            // One link per sender/receiver pair: a shared intermediate node would itself
+            // become a channel bottleneck instead of the controller deciding the limits.
+            for (Port sender : senders) {
+                for (Port listener : listeners) {
+                    IGridConnection link = sender.linkTo(listener.node());
+                    if (link != null) {
+                        links.add(link);
+                    }
+                }
+            }
+        }
+
+        /** Re-reads the live channel usage; never cached across passes. */
+        private void refreshMetrics() {
+            int senders = 0;
+            int receivers = 0;
+            int used = 0;
+            for (Port port : ports) {
+                if (port.spec.sender) {
+                    senders++;
+                } else {
+                    receivers++;
+                    used += port.usedChannels();
+                }
+            }
+            this.occupied = used;
+            this.maxChannels = senders * denseChannelCapacity();
+            this.overloaded = receivers > 0 && senders > 0 && used >= maxChannels;
         }
 
         private boolean matches(List<PortSpec> current) {
@@ -542,10 +529,6 @@ public final class MEChannelCallerNetwork {
         }
 
         private boolean isAlive() {
-            // The hub only needs to exist; it has no world connections of its own.
-            if (hub.getNode() == null) {
-                return false;
-            }
             // A port that failed to attach must be retried instead of staying missing.
             if (ports.size() != specs.size()) {
                 return false;
@@ -563,16 +546,16 @@ public final class MEChannelCallerNetwork {
         }
 
         private boolean isComplete() {
-            int senders = 0;
-            int listeners = 0;
+            boolean sender = false;
+            boolean listener = false;
             for (Port port : ports) {
                 if (port.spec.sender) {
-                    senders++;
+                    sender = true;
                 } else {
-                    listeners++;
+                    listener = true;
                 }
             }
-            return senders > 0 && listeners > 0;
+            return sender && listener;
         }
 
         private void destroy() {
@@ -584,10 +567,6 @@ public final class MEChannelCallerNetwork {
                 port.destroy();
             }
             ports.clear();
-            try {
-                hub.invalidate();
-            } catch (Throwable ignored) {
-            }
         }
     }
 
@@ -612,10 +591,10 @@ public final class MEChannelCallerNetwork {
                     "me_channel_caller_port_" + index, ItemStack.EMPTY, false);
             host.setProxy(proxy);
             if (spec.sender) {
-                // Draws a compressed channel from the touched face, like an ME P2P input.
+                // Draws channels from the touched face, like an ME P2P input.
                 proxy.setFlags(GridFlags.REQUIRE_CHANNEL, GridFlags.COMPRESSED_CHANNEL);
             } else {
-                // Carries the collected channels into the touched block, like an ME P2P output.
+                // Carries those channels into the touched block, like an ME P2P output.
                 proxy.setFlags(GridFlags.DENSE_CAPACITY, GridFlags.CANNOT_CARRY_COMPRESSED);
             }
             proxy.setValidSides(EnumSet.noneOf(EnumFacing.class));
@@ -636,11 +615,28 @@ public final class MEChannelCallerNetwork {
         }
 
         @Nullable
+        private IGridNode node() {
+            return proxy.getNode();
+        }
+
+        @Nullable
         private IGridConnection linkTo(@Nullable IGridNode other) {
             if (other == null) {
                 return null;
             }
-            return connect(other, proxy.getNode());
+            return connect(proxy.getNode(), other);
+        }
+
+        /** Channels currently routed through this port's link to its touched block. */
+        private int usedChannels() {
+            try {
+                if (attachment == null || proxy.getNode() == null) {
+                    return 0;
+                }
+                return Math.max(0, attachment.getUsedChannels());
+            } catch (Throwable ignored) {
+                return 0;
+            }
         }
 
         private boolean isAlive() {
@@ -710,26 +706,6 @@ public final class MEChannelCallerNetwork {
             connection.destroy();
         } catch (Throwable ignored) {
         }
-    }
-
-    @Nullable
-    private static Object gridOf(@Nullable IGridNode node) {
-        try {
-            return node == null ? null : node.getGrid();
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    private static Iterable<IGridNode> nodesOf(@Nullable Object grid) {
-        if (grid instanceof IGrid) {
-            try {
-                return ((IGrid) grid).getNodes();
-            } catch (Throwable ignored) {
-                return Collections.<IGridNode>emptyList();
-            }
-        }
-        return Collections.<IGridNode>emptyList();
     }
 
     private static String describe(PortSpec spec) {

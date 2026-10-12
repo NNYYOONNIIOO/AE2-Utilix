@@ -53,15 +53,15 @@ public class MEChannelCallerTOPIntegration implements Function<ITheOneProbe, Voi
         }
         if (caller.getStatus() == TileMEChannelCaller.STATUS_CONNECTED) {
             probeInfo.text(new TextComponentTranslation(
-                    caller.getTranslationPrefix() + ".status.connected"));
+                    caller.getTranslationPrefix() + ".status.connected",
+                    caller.getRemoteChannels(), caller.getMaxChannels()));
         } else if (caller.getStatus() == TileMEChannelCaller.STATUS_OFF) {
             probeInfo.text(new TextComponentTranslation(
                     caller.getTranslationPrefix() + ".status.off"));
         } else if (caller.getStatusReason() == TileMEChannelCaller.REASON_OVERLOADED) {
             probeInfo.text(new TextComponentTranslation(
                     caller.getTranslationPrefix() + ".status.overloaded",
-                    caller.getRemoteChannels(),
-                    appeng.core.AEConfig.instance().getDenseChannelCapacity()));
+                    caller.getRemoteChannels(), caller.getMaxChannels()));
         } else if (caller.getStatusReason() == TileMEChannelCaller.REASON_AMBIGUOUS) {
             probeInfo.text(new TextComponentTranslation(
                     caller.getTranslationPrefix() + ".status.ambiguous"));

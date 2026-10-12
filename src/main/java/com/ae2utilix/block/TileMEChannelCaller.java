@@ -42,6 +42,7 @@ public class TileMEChannelCaller extends AENetworkTile {
     private static final String NBT_STATUS = "Status";
     private static final String NBT_STATUS_REASON = "StatusReason";
     private static final String NBT_REMOTE_CHANNELS = "RemoteChannels";
+    private static final String NBT_MAX_CHANNELS = "MaxChannels";
     private static final String NBT_LISTENER_MODE = "ListenerMode";
     private static final String MEMORY_SETTINGS = "ae2_utilix.me_channel_caller";
 
@@ -49,7 +50,10 @@ public class TileMEChannelCaller extends AENetworkTile {
     private UUID channelId;
     private int status = STATUS_OFF;
     private int statusReason = REASON_NONE;
+    /** Channels currently carried by this block's UUID link. */
     private int remoteChannels;
+    /** Channels that link can carry, as reported by AE2's own configuration. */
+    private int maxChannels;
     private boolean listenerMode;
 
     @Nullable
@@ -78,6 +82,10 @@ public class TileMEChannelCaller extends AENetworkTile {
 
     public int getRemoteChannels() {
         return remoteChannels;
+    }
+
+    public int getMaxChannels() {
+        return maxChannels;
     }
 
     public boolean isListener() {
@@ -116,19 +124,26 @@ public class TileMEChannelCaller extends AENetworkTile {
     }
 
     public void setStatus(int nextStatus) {
-        setStatus(nextStatus, REASON_NONE, 0);
+        setStatus(nextStatus, REASON_NONE, 0, 0);
     }
 
     public void setStatus(int nextStatus, int reason, int channels) {
+        setStatus(nextStatus, reason, channels, maxChannels);
+    }
+
+    public void setStatus(int nextStatus, int reason, int channels, int channelLimit) {
         nextStatus = Math.max(STATUS_OFF, Math.min(STATUS_ERROR, nextStatus));
         reason = Math.max(REASON_NONE, Math.min(REASON_AMBIGUOUS, reason));
         channels = Math.max(0, channels);
-        if (status == nextStatus && statusReason == reason && remoteChannels == channels) {
+        channelLimit = Math.max(0, channelLimit);
+        if (status == nextStatus && statusReason == reason && remoteChannels == channels
+                && maxChannels == channelLimit) {
             return;
         }
         status = nextStatus;
         statusReason = reason;
         remoteChannels = channels;
+        maxChannels = channelLimit;
         if (world != null && !world.isRemote) {
             IBlockStateUpdater.update(this, status, listenerMode);
             markForUpdate();
@@ -259,6 +274,7 @@ public class TileMEChannelCaller extends AENetworkTile {
         status = data.hasKey(NBT_STATUS) ? data.getInteger(NBT_STATUS) : STATUS_OFF;
         statusReason = data.hasKey(NBT_STATUS_REASON) ? data.getInteger(NBT_STATUS_REASON) : REASON_NONE;
         remoteChannels = data.hasKey(NBT_REMOTE_CHANNELS) ? data.getInteger(NBT_REMOTE_CHANNELS) : 0;
+        maxChannels = data.hasKey(NBT_MAX_CHANNELS) ? data.getInteger(NBT_MAX_CHANNELS) : 0;
         listenerMode = data.getBoolean(NBT_LISTENER_MODE);
     }
 
@@ -271,6 +287,7 @@ public class TileMEChannelCaller extends AENetworkTile {
         data.setInteger(NBT_STATUS, status);
         data.setInteger(NBT_STATUS_REASON, statusReason);
         data.setInteger(NBT_REMOTE_CHANNELS, remoteChannels);
+        data.setInteger(NBT_MAX_CHANNELS, maxChannels);
         data.setBoolean(NBT_LISTENER_MODE, listenerMode);
         return data;
     }
@@ -281,6 +298,7 @@ public class TileMEChannelCaller extends AENetworkTile {
         data.writeByte(status);
         data.writeByte(statusReason);
         data.writeInt(remoteChannels);
+        data.writeInt(maxChannels);
         data.writeBoolean(listenerMode);
     }
 
@@ -290,13 +308,16 @@ public class TileMEChannelCaller extends AENetworkTile {
         int oldStatus = status;
         int oldReason = statusReason;
         int oldRemoteChannels = remoteChannels;
+        int oldMaxChannels = maxChannels;
         status = data.readUnsignedByte();
         statusReason = data.readUnsignedByte();
         remoteChannels = data.readInt();
+        maxChannels = data.readInt();
         boolean oldListenerMode = listenerMode;
         listenerMode = data.readBoolean();
         return changed || oldStatus != status || oldReason != statusReason
-                || oldRemoteChannels != remoteChannels || oldListenerMode != listenerMode;
+                || oldRemoteChannels != remoteChannels || oldMaxChannels != maxChannels
+                || oldListenerMode != listenerMode;
     }
 
     @Override
@@ -305,6 +326,7 @@ public class TileMEChannelCaller extends AENetworkTile {
         tag.setInteger(NBT_STATUS, status);
         tag.setInteger(NBT_STATUS_REASON, statusReason);
         tag.setInteger(NBT_REMOTE_CHANNELS, remoteChannels);
+        tag.setInteger(NBT_MAX_CHANNELS, maxChannels);
         tag.setBoolean(NBT_LISTENER_MODE, listenerMode);
         return tag;
     }
@@ -321,6 +343,9 @@ public class TileMEChannelCaller extends AENetworkTile {
         }
         if (tag.hasKey(NBT_REMOTE_CHANNELS)) {
             remoteChannels = Math.max(0, tag.getInteger(NBT_REMOTE_CHANNELS));
+        }
+        if (tag.hasKey(NBT_MAX_CHANNELS)) {
+            maxChannels = Math.max(0, tag.getInteger(NBT_MAX_CHANNELS));
         }
         if (tag.hasKey(NBT_LISTENER_MODE)) {
             listenerMode = tag.getBoolean(NBT_LISTENER_MODE);
