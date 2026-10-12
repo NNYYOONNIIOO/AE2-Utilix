@@ -410,6 +410,13 @@ public final class MEChannelCallerNetwork {
         if (target == null) {
             return null;
         }
+        // A caller is an AE grid host itself, but it is never the physical
+        // network endpoint of another caller. Without this guard, adjacent
+        // callers can resolve each other's grid node and create a sender to
+        // sender bridge instead of using the cable/controller beside them.
+        if (target instanceof TileMEChannelCaller) {
+            return null;
+        }
         AEPartLocation side = AEPartLocation.fromFacing(targetSide);
 
         if (target instanceof TileCableBus) {
@@ -771,22 +778,21 @@ public final class MEChannelCallerNetwork {
                     sourceOuter = source.outerNode;
                 }
 
-                // A previous sender bridge may already have merged these two
-                // endpoint grids. The new sender still owns its own channel
-                // proxy pair, but there is no second outer edge to create in
-                // that case.
-                if (!sameGrid(sourceOuter, output.outerNode)) {
-                    IGridConnection connection = connectOuter(sourceOuter, output.outerNode);
-                    if (connection == null) {
-                        reportBridgeFailure(callers.get(sourceIndex).getChannelId(),
-                                "could not join source "
-                                        + describeCaller(callers.get(sourceIndex))
-                                        + " to destination " + describeCaller(callers.get(i)));
-                        result.destroy();
-                        return null;
-                    }
-                    result.outerConnections.add(connection);
+                // Keep one explicit outer edge for every sender/listener
+                // pair, even after an earlier bridge has made both proxy
+                // nodes report the same logical grid. AE2's P2P outer nodes
+                // are distinct endpoints; sameGrid() alone must not collapse
+                // those independent paths.
+                IGridConnection connection = connectOuter(sourceOuter, output.outerNode);
+                if (connection == null) {
+                    reportBridgeFailure(callers.get(sourceIndex).getChannelId(),
+                            "could not join source "
+                                    + describeCaller(callers.get(sourceIndex))
+                                    + " to destination " + describeCaller(callers.get(i)));
+                    result.destroy();
+                    return null;
                 }
+                result.outerConnections.add(connection);
                 outputIndex++;
             }
             return result;
@@ -872,8 +878,7 @@ public final class MEChannelCallerNetwork {
                     return false;
                 }
                 IGridNode sourceOuter = getSourceOuter(i);
-                if (!sameGrid(sourceOuter, output.outerNode)
-                        && !hasDirectConnection(sourceOuter, output.outerNode)) {
+                if (!hasDirectConnection(sourceOuter, output.outerNode)) {
                     return false;
                 }
             }
@@ -901,8 +906,7 @@ public final class MEChannelCallerNetwork {
                             + describeCaller(callers.get(i < sourceIndex ? i : i + 1));
                 }
                 IGridNode sourceOuter = getSourceOuter(i);
-                if (!sameGrid(sourceOuter, output.outerNode)
-                        && !hasDirectConnection(sourceOuter, output.outerNode)) {
+                if (!hasDirectConnection(sourceOuter, output.outerNode)) {
                     return "outer bridge connection is missing for destination "
                             + describeCaller(callers.get(i < sourceIndex ? i : i + 1));
                 }
