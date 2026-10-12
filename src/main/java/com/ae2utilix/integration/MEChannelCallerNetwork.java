@@ -27,6 +27,7 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
 
 import javax.annotation.Nullable;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -498,18 +499,83 @@ public final class MEChannelCallerNetwork {
         private void refreshMetrics() {
             int senders = 0;
             int receivers = 0;
-            int used = 0;
+            int granted = 0;
             for (Port port : ports) {
                 if (port.spec.sender) {
                     senders++;
                 } else {
                     receivers++;
-                    used += port.usedChannels();
+                    granted += port.usedChannels();
                 }
             }
-            this.occupied = used;
-            this.maxChannels = senders * denseChannelCapacity();
-            this.overloaded = receivers > 0 && senders > 0 && used >= maxChannels;
+            // Refused requests are the only real overload signal: AE2 never lets the
+            // granted count pass the limit, so a full link is only overloaded when
+            // something behind the receivers asked for a channel and did not get one.
+            int refused = countRefusedChannelRequests();
+            this.occupied = granted + refused;
+            this.maxChannels = Math.min(senders, receivers) * denseChannelCapacity();
+            this.overloaded = senders > 0 && receivers > 0 && maxChannels > 0
+                    && refused > 0 && granted >= maxChannels;
+        }
+
+        /**
+         * Counts channel requests behind the receiver ports that AE2 could not satisfy.
+         * The walk starts at the touched blocks and never crosses one of our own ports, so
+         * the sender side's own devices can never be mistaken for receiver demand.
+         */
+        private int countRefusedChannelRequests() {
+            Set<IGridNode> portNodes = Collections.newSetFromMap(
+                    new IdentityHashMap<IGridNode, Boolean>());
+            for (Port port : ports) {
+                IGridNode node = port.node();
+                if (node != null) {
+                    portNodes.add(node);
+                }
+            }
+            Set<IGridNode> visited = Collections.newSetFromMap(
+                    new IdentityHashMap<IGridNode, Boolean>());
+            ArrayDeque<IGridNode> queue = new ArrayDeque<IGridNode>();
+            for (Port port : ports) {
+                if (port.spec.sender) {
+                    continue;
+                }
+                IGridNode start = port.spec.target;
+                if (start != null && visited.add(start)) {
+                    queue.add(start);
+                }
+            }
+            int refused = 0;
+            int scanned = 0;
+            while (!queue.isEmpty() && scanned++ < MAX_GRID_SCAN) {
+                IGridNode node = queue.poll();
+                if (portNodes.contains(node)) {
+                    continue;
+                }
+                try {
+                    if (node.hasFlag(GridFlags.REQUIRE_CHANNEL)
+                            && !node.meetsChannelRequirements()) {
+                        refused++;
+                    }
+                } catch (Throwable ignored) {
+                }
+                List<IGridConnection> connections = new ArrayList<IGridConnection>();
+                try {
+                    for (IGridConnection connection : node.getConnections()) {
+                        connections.add(connection);
+                    }
+                } catch (Throwable ignored) {
+                }
+                for (IGridConnection connection : connections) {
+                    try {
+                        IGridNode other = connection.getOtherSide(node);
+                        if (other != null && visited.add(other)) {
+                            queue.add(other);
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+            return refused;
         }
 
         private boolean matches(List<PortSpec> current) {
