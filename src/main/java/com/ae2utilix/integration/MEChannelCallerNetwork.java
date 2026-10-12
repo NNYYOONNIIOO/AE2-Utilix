@@ -489,49 +489,6 @@ public final class MEChannelCallerNetwork {
     }
 
     /**
-     * Identity of the controller-less network a face belongs to. Every node reachable from
-     * that face without crossing one of our own blocks is part of the same network, so the
-     * smallest identity in that set is stable for all faces of one network.
-     */
-    @Nullable
-    private static Object networkKey(@Nullable IGridNode face, Set<IGridNode> excluded) {
-        if (face == null) {
-            return null;
-        }
-        Set<IGridNode> visited = Collections.newSetFromMap(
-                new IdentityHashMap<IGridNode, Boolean>());
-        ArrayDeque<IGridNode> queue = new ArrayDeque<IGridNode>();
-        visited.add(face);
-        queue.add(face);
-        int best = System.identityHashCode(face);
-        int scanned = 0;
-        while (!queue.isEmpty() && scanned++ < MAX_GRID_SCAN) {
-            IGridNode node = queue.poll();
-            List<IGridConnection> connections = new ArrayList<IGridConnection>();
-            try {
-                for (IGridConnection connection : node.getConnections()) {
-                    connections.add(connection);
-                }
-            } catch (Throwable ignored) {
-            }
-            for (IGridConnection connection : connections) {
-                IGridNode other;
-                try {
-                    other = connection.getOtherSide(node);
-                } catch (Throwable ignored) {
-                    continue;
-                }
-                if (other == null || excluded.contains(other) || !visited.add(other)) {
-                    continue;
-                }
-                best = Math.min(best, System.identityHashCode(other));
-                queue.add(other);
-            }
-        }
-        return Integer.valueOf(best);
-    }
-
-    /**
      * Works out how many channels every sender face can really bring in.
      *
      * <p>A controller face is one shared pool of channels: when several caller faces trace
@@ -568,30 +525,16 @@ public final class MEChannelCallerNetwork {
         }
         if (!anyController) {
             // Without a controller AE2 only serves such a network up to the normal
-            // capacity, and every block in that network sees the very same number. It is
-            // therefore reported once per source network instead of once per touched face,
-            // which would otherwise multiply that supply by the number of faces.
-            Map<PortSpec, Object> keys = new IdentityHashMap<PortSpec, Object>();
-            Map<Object, Integer> levelByNetwork = new IdentityHashMap<Object, Integer>();
+            // capacity, and it hands out the very same number to every block in it. Once our
+            // own links merge those faces they are one ad hoc grid, so that one allotment is
+            // reported once for the whole group instead of once per touched face.
+            int level = 0;
             for (PortSpec spec : senders) {
-                Object key = networkKey(spec.target, portNodes);
-                keys.put(spec, key);
-                int level = faceChannelCapacity(spec.target);
-                Integer best = levelByNetwork.get(key);
-                if (best == null || level > best) {
-                    levelByNetwork.put(key, level);
-                }
+                level = Math.max(level, faceChannelCapacity(spec.target));
             }
-            Map<Object, Boolean> assigned = new IdentityHashMap<Object, Boolean>();
-            for (PortSpec spec : senders) {
-                Object key = keys.get(spec);
-                if (key == null || assigned.containsKey(key)) {
-                    spec.provided = 0;
-                    continue;
-                }
-                assigned.put(key, Boolean.TRUE);
-                Integer level = levelByNetwork.get(key);
-                spec.provided = Math.min(level == null ? 0 : level, normalChannelCapacity());
+            int shared = Math.min(level, normalChannelCapacity());
+            for (int i = 0; i < senders.size(); i++) {
+                senders.get(i).provided = i == 0 ? shared : 0;
             }
             return;
         }
