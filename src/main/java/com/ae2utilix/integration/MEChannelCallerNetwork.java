@@ -533,30 +533,132 @@ public final class MEChannelCallerNetwork {
             int receivers = 0;
             int granted = 0;
             int supplied = 0;
-            int supplyMax = 0;
             for (Port port : ports) {
                 if (port.spec.sender) {
                     senders++;
                     supplied += port.usedChannels();
-                    supplyMax += faceChannelCapacity(port.spec.target);
                 } else {
                     receivers++;
                     granted += port.usedChannels();
                 }
             }
             this.occupied = granted;
-            // The reported limit is what the caller side makes available: the sum of the
-            // channels each touched sender face can carry, so a face on a normal cable
-            // contributes the normal capacity while dense cable and controller faces
-            // contribute the dense capacity.
-            this.maxChannels = supplyMax;
+            // The reported limit is what the caller side can really be fed: every touched
+            // face is traced back to its channel source and the narrowest node on that path
+            // decides how many channels can actually arrive there.
+            this.maxChannels = providedCapacity();
             // Overload needs both halves to be true: this link must actually be drawing
-            // everything its sender faces can give, and the receiver side must still want
+            // everything the source can feed it, and the receiver side must still want
             // more than it received. A link with spare supply is never reported as
             // overloaded just because some devices elsewhere were refused channels.
             this.overloaded = senders > 0 && receivers > 0 && maxChannels > 0
-                    && supplied >= supplyMax
+                    && supplied >= maxChannels
                     && requestedCapacity() > supplied;
+        }
+
+        /**
+         * Channels that can actually be fed into all touched sender faces. Each face is
+         * traced outward across its own network only: the walk never leaves through one of
+         * our ports, so a caller on the receiving side can never inflate the number, and a
+         * controller terminates the walk because it is the channel source itself.
+         */
+        private int providedCapacity() {
+            Set<IGridNode> portNodes = Collections.newSetFromMap(
+                    new IdentityHashMap<IGridNode, Boolean>());
+            for (Port port : ports) {
+                IGridNode node = port.node();
+                if (node != null) {
+                    portNodes.add(node);
+                }
+            }
+            int total = 0;
+            for (Port port : ports) {
+                if (port.spec.sender) {
+                    total += upstreamCapacity(port.spec.target, portNodes);
+                }
+            }
+            return total;
+        }
+
+        /**
+         * Widest path from any channel source back to this face. The narrowest carrying
+         * node on that path is what the face can really receive, so a dense cable fed by a
+         * normal cable reports the normal capacity instead of its own dense capacity.
+         */
+        private static int upstreamCapacity(@Nullable IGridNode face, Set<IGridNode> portNodes) {
+            if (face == null) {
+                return 0;
+            }
+            int faceLevel = faceChannelCapacity(face);
+            if (faceLevel <= 0) {
+                return 0;
+            }
+            if (isChannelSource(face)) {
+                return faceLevel;
+            }
+            Map<IGridNode, Integer> best = new IdentityHashMap<IGridNode, Integer>();
+            ArrayDeque<IGridNode> queue = new ArrayDeque<IGridNode>();
+            best.put(face, faceLevel);
+            queue.add(face);
+            int fromSource = 0;
+            boolean sourceFound = false;
+            int scanned = 0;
+            while (!queue.isEmpty() && scanned++ < MAX_GRID_SCAN) {
+                IGridNode node = queue.poll();
+                Integer running = best.get(node);
+                if (running == null) {
+                    continue;
+                }
+                List<IGridConnection> connections = new ArrayList<IGridConnection>();
+                try {
+                    for (IGridConnection connection : node.getConnections()) {
+                        connections.add(connection);
+                    }
+                } catch (Throwable ignored) {
+                }
+                for (IGridConnection connection : connections) {
+                    IGridNode other;
+                    try {
+                        other = connection.getOtherSide(node);
+                    } catch (Throwable ignored) {
+                        continue;
+                    }
+                    if (other == null || portNodes.contains(other)) {
+                        continue;
+                    }
+                    if (isChannelSource(other)) {
+                        sourceFound = true;
+                        fromSource = Math.max(fromSource, running);
+                        // The controller is the source; nothing behind it belongs to this path.
+                        continue;
+                    }
+                    int level = faceChannelCapacity(other);
+                    if (level <= 0) {
+                        continue;
+                    }
+                    int candidate = Math.min(running, level);
+                    Integer existing = best.get(other);
+                    if (existing == null || candidate > existing) {
+                        best.put(other, candidate);
+                        queue.add(other);
+                    }
+                }
+            }
+            if (sourceFound) {
+                return fromSource;
+            }
+            // Without a controller AE2 only serves ad hoc networks up to the normal
+            // capacity, so that is the most a face can be fed in such a network.
+            return Math.min(faceLevel, normalChannelCapacity());
+        }
+
+        private static boolean isChannelSource(@Nullable IGridNode node) {
+            try {
+                return node != null && node.hasFlag(GridFlags.CANNOT_CARRY)
+                        && node.hasFlag(GridFlags.DENSE_CAPACITY);
+            } catch (Throwable ignored) {
+                return false;
+            }
         }
 
         /**
