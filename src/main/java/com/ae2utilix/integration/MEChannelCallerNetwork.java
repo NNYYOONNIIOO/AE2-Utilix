@@ -500,22 +500,26 @@ public final class MEChannelCallerNetwork {
             int senders = 0;
             int receivers = 0;
             int granted = 0;
+            int supplied = 0;
             for (Port port : ports) {
                 if (port.spec.sender) {
                     senders++;
+                    supplied += port.usedChannels();
                 } else {
                     receivers++;
                     granted += port.usedChannels();
                 }
             }
             this.occupied = granted;
-            this.maxChannels = Math.min(senders, receivers) * denseChannelCapacity();
-            // Overload means this link cannot serve the faces it feeds, so the receiver
-            // side's demand is compared against what the senders can supply. Demand is
-            // capped per face, so a single cable that is overloaded by its own devices
-            // never shows up as an overload of this link.
+            int capacity = denseChannelCapacity();
+            this.maxChannels = Math.min(senders, receivers) * capacity;
+            // Overload needs both halves to be true: this link must actually be drawing
+            // everything its sender faces can give, and the receiver side must still want
+            // more than it received. A link with spare supply is never reported as
+            // overloaded just because some devices elsewhere were refused channels.
             this.overloaded = senders > 0 && receivers > 0 && maxChannels > 0
-                    && requestedCapacity() > senders * denseChannelCapacity();
+                    && supplied >= senders * capacity
+                    && requestedCapacity() > supplied;
         }
 
         /**
