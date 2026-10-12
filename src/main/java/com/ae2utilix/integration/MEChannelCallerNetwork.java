@@ -256,9 +256,10 @@ public final class MEChannelCallerNetwork {
             }
         }
 
-        // Every sender face is priced against the controller face that feeds it, so faces
-        // sharing one controller face cannot each claim the full amount.
-        assignProvidedCapacity(membersById, specsByCaller, allPortNodes());
+        // One budget per controller face is shared by every sender face it feeds, so the
+        // faces can never add up to more than the controller face can hand out.
+        Set<IGridNode> portNodes = allPortNodes();
+        Map<Object, Integer> remaining = new IdentityHashMap<Object, Integer>();
 
         // A UUID whose last block was removed drops its links entirely.
         for (UUID id : new ArrayList<UUID>(GROUPS.keySet())) {
@@ -293,6 +294,11 @@ public final class MEChannelCallerNetwork {
                 group.syncProvided(specs);
             }
             if (group != null) {
+                int ours = group.occupied;
+                assignProvidedCapacity(entry.getValue(), specs, portNodes, remaining, ours);
+                if (group.specs != specs) {
+                    group.syncProvided(specs);
+                }
                 // Channel usage changes every tick, so it must be re-read, never cached.
                 group.refreshMetrics();
             }
@@ -488,50 +494,89 @@ public final class MEChannelCallerNetwork {
      * <p>When a UUID has no controller anywhere on its caller side, AE2 only serves such a
      * network up to the normal capacity, so every caller face reports that same ceiling.</p>
      */
-    private static void assignProvidedCapacity(
-            Map<UUID, List<TileMEChannelCaller>> membersById,
-            Map<TileMEChannelCaller, List<PortSpec>> specsByCaller,
-            Set<IGridNode> portNodes) {
-        Map<Object, Integer> remaining = new IdentityHashMap<Object, Integer>();
-        for (List<TileMEChannelCaller> members : membersById.values()) {
-            List<PortSpec> senders = new ArrayList<PortSpec>();
-            for (TileMEChannelCaller caller : members) {
-                List<PortSpec> specs = specsByCaller.get(caller);
-                if (specs == null) {
-                    continue;
-                }
-                for (PortSpec spec : specs) {
-                    if (spec.sender) {
-                        senders.add(spec);
-                    }
-                }
-            }
-            if (senders.isEmpty()) {
-                continue;
-            }
-            Map<PortSpec, SourceRef> refs = new IdentityHashMap<PortSpec, SourceRef>();
-            boolean anyController = false;
-            for (PortSpec spec : senders) {
-                SourceRef ref = traceSource(spec.target, portNodes);
-                if (ref != null) {
-                    refs.put(spec, ref);
-                    anyController = true;
-                }
-            }
-            for (PortSpec spec : senders) {
-                SourceRef ref = refs.get(spec);
-                if (ref == null) {
-                    spec.provided = anyController ? 0
-                            : Math.min(faceChannelCapacity(spec.target), normalChannelCapacity());
-                    continue;
-                }
-                Integer left = remaining.get(ref.faceKey);
-                int budget = left == null ? denseChannelCapacity() : left;
-                int give = Math.max(0, Math.min(ref.bottleneck, budget));
-                remaining.put(ref.faceKey, budget - give);
-                spec.provided = give;
+    private static void assignProvidedCapacity(List<TileMEChannelCaller> members,
+                                               List<PortSpec> specs,
+                                               Set<IGridNode> portNodes,
+                                               Map<Object, Integer> remaining,
+                                               int ours) {
+        List<PortSpec> senders = new ArrayList<PortSpec>();
+        for (PortSpec spec : specs) {
+            if (spec.sender) {
+                senders.add(spec);
             }
         }
+        if (senders.isEmpty()) {
+            return;
+        }
+        Map<PortSpec, SourceRef> refs = new IdentityHashMap<PortSpec, SourceRef>();
+        boolean anyController = false;
+        for (PortSpec spec : senders) {
+            SourceRef ref = traceSource(spec, portNodes, ours);
+            if (ref != null) {
+                refs.put(spec, ref);
+                anyController = true;
+            }
+        }
+        for (PortSpec spec : senders) {
+            SourceRef ref = refs.get(spec);
+            if (ref == null) {
+                // No controller anywhere on this UUID's caller side: AE2 only serves such
+                // a network up to the normal capacity, and it is the same on every face.
+                spec.provided = anyController ? 0
+                        : Math.min(faceChannelCapacity(spec.target), normalChannelCapacity());
+                continue;
+            }
+            Integer left = remaining.get(ref.faceKey);
+            int budget = left == null ? faceBudget(ref, ours) : left;
+            int give = Math.max(0, Math.min(ref.bottleneck, budget));
+            remaining.put(ref.faceKey, Math.max(0, budget - give));
+            spec.provided = give;
+        }
+    }
+
+    /** Channels left on the controller face that pays for this path. */
+    private static int faceBudget(SourceRef ref, int ours) {
+        int capacity = denseChannelCapacity();
+        if (!(ref.faceKey instanceof IGridConnection)) {
+            // The caller touches the controller itself, so the face is dedicated to it.
+            return capacity;
+        }
+        int used = 0;
+        try {
+            used = ((IGridConnection) ref.faceKey).getUsedChannels();
+        } catch (Throwable ignored) {
+        }
+        return Math.max(0, capacity - Math.max(0, used - ours));
+    }
+
+    /** Channels still free on a carrying node, ignoring what this very link already sends. */
+    private static int remainingAt(@Nullable IGridNode node, int ours) {
+        int level = faceChannelCapacity(node);
+        if (level <= 0) {
+            return 0;
+        }
+        return Math.max(0, level - Math.max(0, usedChannelsAt(node) - ours));
+    }
+
+    /**
+     * Channels that already flow through a node. AE2 only exposes this per connection, so
+     * the busiest edge of the node is used as its current load, which is exactly the edge
+     * leading further up toward the channel source.
+     */
+    private static int usedChannelsAt(@Nullable IGridNode node) {
+        if (node == null) {
+            return 0;
+        }
+        int used = 0;
+        try {
+            for (IGridConnection connection : node.getConnections()) {
+                if (connection != null) {
+                    used = Math.max(used, connection.getUsedChannels());
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return used;
     }
 
     /** The controller face a caller is fed from, plus what that path can carry. */
@@ -551,18 +596,16 @@ public final class MEChannelCallerNetwork {
      * the edge leaving the controller identifies the controller face that pays for it.
      */
     @Nullable
-    private static SourceRef traceSource(@Nullable IGridNode face, Set<IGridNode> excluded) {
-        if (face == null) {
-            return null;
-        }
-        int faceLevel = faceChannelCapacity(face);
-        if (faceLevel <= 0) {
+    private static SourceRef traceSource(PortSpec spec, Set<IGridNode> excluded, int ours) {
+        IGridNode face = spec.target;
+        if (face == null || faceChannelCapacity(face) <= 0) {
             return null;
         }
         if (isChannelSource(face)) {
             // The caller touches a controller directly; each caller face is its own face.
-            return new SourceRef(face, faceLevel);
+            return new SourceRef(spec, denseChannelCapacity());
         }
+        int faceLevel = remainingAt(face, ours);
         Map<IGridNode, Integer> best = new IdentityHashMap<IGridNode, Integer>();
         ArrayDeque<IGridNode> queue = new ArrayDeque<IGridNode>();
         best.put(face, faceLevel);
@@ -603,7 +646,7 @@ public final class MEChannelCallerNetwork {
                 if (level <= 0) {
                     continue;
                 }
-                int candidate = Math.min(running, level);
+                int candidate = Math.min(running, remainingAt(other, ours));
                 Integer existing = best.get(other);
                 if (existing == null || candidate > existing) {
                     best.put(other, candidate);
@@ -724,7 +767,7 @@ public final class MEChannelCallerNetwork {
             // everything the source can feed it, and the receiver side must still want
             // more than it received. A link with spare supply is never reported as
             // overloaded just because some devices elsewhere were refused channels.
-            this.overloaded = senders > 0 && receivers > 0 && maxChannels > 0
+            this.overloaded = senders > 0 && receivers > 0
                     && supplied >= maxChannels
                     && requestedCapacity() > supplied;
         }
