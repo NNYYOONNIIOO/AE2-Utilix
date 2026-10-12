@@ -517,13 +517,27 @@ public final class MEChannelCallerNetwork {
                 anyController = true;
             }
         }
+        if (!anyController) {
+            // Without a controller AE2 only serves such a network up to the normal
+            // capacity, and every block in that network sees the very same number. It is
+            // therefore reported once for the whole group instead of once per touched face,
+            // which would otherwise multiply the same channel supply by the face count.
+            int level = 0;
+            for (PortSpec spec : senders) {
+                level = Math.max(level, faceChannelCapacity(spec.target));
+            }
+            int shared = Math.min(level, normalChannelCapacity());
+            for (int i = 0; i < senders.size(); i++) {
+                senders.get(i).provided = i == 0 ? shared : 0;
+            }
+            return;
+        }
         for (PortSpec spec : senders) {
             SourceRef ref = refs.get(spec);
             if (ref == null) {
-                // No controller anywhere on this UUID's caller side: AE2 only serves such
-                // a network up to the normal capacity, and it is the same on every face.
-                spec.provided = anyController ? 0
-                        : Math.min(faceChannelCapacity(spec.target), normalChannelCapacity());
+                // This face cannot reach a controller while another face of the same UUID
+                // can, so it contributes nothing to the group's supply.
+                spec.provided = 0;
                 continue;
             }
             Integer left = remaining.get(ref.faceKey);
