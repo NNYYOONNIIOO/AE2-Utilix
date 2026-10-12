@@ -183,18 +183,48 @@ public final class MEChannelCallerNetwork {
             }
         }
 
+        // A UUID is a channel, while a local AE grid is one physical source
+        // for that channel. Do not create one controller/outer proxy set for
+        // every caller in the same grid: doing so connects the same network
+        // repeatedly and can make callers appear to bind to one another.
+        for (ChannelGroup group : byId.values()) {
+            for (TileMEChannelCaller caller : group.callers) {
+                Endpoint source = endpointsByCaller.get(caller);
+                if (source == null || source.node == null || source.node.getGrid() == null) {
+                    continue;
+                }
+                SourceGroup sourceGroup = null;
+                for (SourceGroup candidate : group.sources) {
+                    if (candidate.source.node.getGrid() == source.node.getGrid()) {
+                        sourceGroup = candidate;
+                        break;
+                    }
+                }
+                if (sourceGroup == null) {
+                    sourceGroup = new SourceGroup(caller, source);
+                    group.sources.add(sourceGroup);
+                }
+                sourceGroup.callers.add(caller);
+            }
+        }
+
         Set<String> liveBridgeKeys = new HashSet<>();
         for (Map.Entry<UUID, ChannelGroup> entry : byId.entrySet()) {
             ChannelGroup group = entry.getValue();
-            for (TileMEChannelCaller caller : group.callers) {
+            for (SourceGroup sourceGroup : group.sources) {
                 for (TileMEChannelCaller listener : group.listeners) {
-                    increment(expectedPeers, caller);
+                    for (TileMEChannelCaller caller : sourceGroup.callers) {
+                        increment(expectedPeers, caller);
+                    }
+                    // A listener needs one path per distinct source grid, not
+                    // one path per caller sharing that source grid.
                     increment(expectedPeers, listener);
                 }
             }
 
-            for (TileMEChannelCaller caller : group.callers) {
-                Endpoint source = endpointsByCaller.get(caller);
+            for (SourceGroup sourceGroup : group.sources) {
+                TileMEChannelCaller caller = sourceGroup.sourceCaller;
+                Endpoint source = sourceGroup.source;
                 List<TileMEChannelCaller> remoteListeners = new ArrayList<>();
                 List<Endpoint> remoteEndpoints = new ArrayList<>();
                 String key = bridgeKey(entry.getKey(), caller);
@@ -212,7 +242,9 @@ public final class MEChannelCallerNetwork {
                     // be destroyed every ten ticks.
                     boolean alreadyBridged = bridge != null && bridge.contains(listener);
                     if (sameGrid(source.node, destination.node) && !alreadyBridged) {
-                        increment(connectedPeers, caller);
+                        for (TileMEChannelCaller sourceCaller : sourceGroup.callers) {
+                            increment(connectedPeers, sourceCaller);
+                        }
                         increment(connectedPeers, listener);
                     } else {
                         remoteListeners.add(listener);
@@ -240,7 +272,9 @@ public final class MEChannelCallerNetwork {
                     liveBridgeKeys.add(key);
                     clearBridgeFailure(key);
                     for (TileMEChannelCaller listener : remoteListeners) {
-                        increment(connectedPeers, caller);
+                        for (TileMEChannelCaller sourceCaller : sourceGroup.callers) {
+                            increment(connectedPeers, sourceCaller);
+                        }
                         increment(connectedPeers, listener);
                     }
                 } else if (bridge != null) {
@@ -288,6 +322,19 @@ public final class MEChannelCallerNetwork {
     private static final class ChannelGroup {
         private final List<TileMEChannelCaller> callers = new ArrayList<>();
         private final List<TileMEChannelCaller> listeners = new ArrayList<>();
+        private final List<SourceGroup> sources = new ArrayList<>();
+    }
+
+    /** One physical AE grid supplying a UUID channel. */
+    private static final class SourceGroup {
+        private final TileMEChannelCaller sourceCaller;
+        private final Endpoint source;
+        private final List<TileMEChannelCaller> callers = new ArrayList<>();
+
+        private SourceGroup(TileMEChannelCaller sourceCaller, Endpoint source) {
+            this.sourceCaller = sourceCaller;
+            this.source = source;
+        }
     }
 
     private static boolean hasPoweredEndpoint(TileMEChannelCaller caller) {
@@ -403,14 +450,11 @@ public final class MEChannelCallerNetwork {
     }
 
     private static boolean isUsableEndpoint(@Nullable IGridNode node) {
-        if (node == null) {
-            return false;
-        }
-        try {
-            return node.getGrid() != null;
-        } catch (Throwable ignored) {
-            return false;
-        }
+        // A listener may be completely unpowered and therefore not belong to
+        // an AE grid yet. It is still a valid physical endpoint: the bridge
+        // must be allowed to connect its node to the sender's outer network
+        // so that the listener can receive its first power/channel update.
+        return node != null;
     }
 
     private static boolean sameGrid(IGridNode first, IGridNode second) {
