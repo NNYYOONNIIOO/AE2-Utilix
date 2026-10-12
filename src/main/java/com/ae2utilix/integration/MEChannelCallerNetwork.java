@@ -512,7 +512,9 @@ public final class MEChannelCallerNetwork {
             }
             this.occupied = granted;
             int capacity = denseChannelCapacity();
-            this.maxChannels = Math.min(senders, receivers) * capacity;
+            // The reported limit is what the caller side actually provides: every touched
+            // sender face can contribute one configured capacity worth of channels.
+            this.maxChannels = senders * capacity;
             // Overload needs both halves to be true: this link must actually be drawing
             // everything its sender faces can give, and the receiver side must still want
             // more than it received. A link with spare supply is never reported as
