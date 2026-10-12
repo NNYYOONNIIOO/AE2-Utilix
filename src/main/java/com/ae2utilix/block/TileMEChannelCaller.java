@@ -2,6 +2,8 @@ package com.ae2utilix.block;
 
 import appeng.api.implementations.items.IMemoryCard;
 import appeng.api.implementations.items.MemoryCardMessages;
+import appeng.api.networking.IGridNode;
+import appeng.api.util.AEPartLocation;
 import appeng.tile.grid.AENetworkTile;
 import com.ae2utilix.AE2Utilix;
 import com.ae2utilix.integration.MEChannelCallerNetwork;
@@ -11,6 +13,7 @@ import io.netty.buffer.ByteBuf;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.text.TextComponentTranslation;
@@ -79,6 +82,19 @@ public class TileMEChannelCaller extends AENetworkTile {
 
     public boolean isListener() {
         return listenerMode;
+    }
+
+    @Override
+    public IGridNode getGridNode(AEPartLocation direction) {
+        if (world != null && pos != null && direction != null
+                && direction != AEPartLocation.INTERNAL
+                && direction.getFacing() != null) {
+            TileEntity adjacent = world.getTileEntity(pos.offset(direction.getFacing()));
+            if (adjacent instanceof TileMEChannelCaller) {
+                return null;
+            }
+        }
+        return super.getGridNode(direction);
     }
 
     public String getTranslationPrefix() {

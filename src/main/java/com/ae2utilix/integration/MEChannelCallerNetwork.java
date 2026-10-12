@@ -227,9 +227,9 @@ public final class MEChannelCallerNetwork {
                 }
             }
 
-            int allocatedPaths = 0;
             int channelCapacity = getTransferCapacity();
             for (TileMEChannelCaller caller : group.callers) {
+                int allocatedPaths = 0;
                 Endpoint source = endpointsByCaller.get(caller);
                 List<TileMEChannelCaller> remoteListeners = new ArrayList<>();
                 List<Endpoint> remoteEndpoints = new ArrayList<>();
@@ -250,9 +250,9 @@ public final class MEChannelCallerNetwork {
                         increment(connectedPeers, caller);
                         increment(connectedPeers, listener);
                     } else {
-                        // Keep an existing path alive even when the total has
-                        // reached the capacity. New sender paths are denied
-                        // once this UUID has consumed its available channels.
+                        // Keep established paths alive; the capacity applies
+                        // to each sender, so other senders with this UUID can
+                        // contribute their own channel paths.
                         if (!alreadyBridged && allocatedPaths >= channelCapacity) {
                             capacityBlocked.add(caller);
                             capacityBlocked.add(listener);
@@ -305,8 +305,7 @@ public final class MEChannelCallerNetwork {
             boolean powered = isPowered(endpoint);
             int expected = value(expectedPeers, caller);
             int connected = value(connectedPeers, caller);
-            boolean overloaded = capacityBlocked.contains(caller)
-                    || connected > getTransferCapacity();
+            boolean overloaded = capacityBlocked.contains(caller);
             boolean complete = expected > 0 && connected >= expected && !overloaded;
             caller.setStatus(overloaded ? TileMEChannelCaller.STATUS_ERROR
                             : complete && powered ? TileMEChannelCaller.STATUS_CONNECTED
@@ -401,7 +400,10 @@ public final class MEChannelCallerNetwork {
                 first = candidate;
             }
         }
-        return first;
+        IGridNode callerNode = caller.getProxy().getNode();
+        return callerNode == null
+                ? first
+                : new Endpoint(callerNode, false, false, AEPartLocation.INTERNAL);
     }
 
     @Nullable
@@ -953,14 +955,27 @@ public final class MEChannelCallerNetwork {
     private static final class BridgeProxy {
         private final TileMEChannelCaller caller;
         private final Endpoint endpoint;
+        @Nullable
+        private final ControllerSource controllerEndpoint;
         private final AENetworkProxy channelProxy;
         private final AENetworkProxy outerProxy;
         private final List<IGridConnection> connections = new ArrayList<>();
+        @Nullable
+        private IGridNode channelNode;
+        @Nullable
+        private IGridNode outerNode;
 
         private BridgeProxy(TileMEChannelCaller caller, Endpoint endpoint,
                             String suffix) {
             this.caller = caller;
             this.endpoint = endpoint;
+            if (endpoint.controller) {
+                controllerEndpoint = new ControllerSource(caller, endpoint.node, 1, false);
+                channelProxy = null;
+                outerProxy = null;
+                return;
+            }
+            controllerEndpoint = null;
             DimensionalCoord location = new DimensionalCoord(caller.getWorld(), caller.getPos());
             EnumSet<EnumFacing> noSides = EnumSet.noneOf(EnumFacing.class);
             EnumSet<EnumFacing> outerSides = getOuterProxySides(endpoint);
@@ -972,10 +987,6 @@ public final class MEChannelCallerNetwork {
             channelProxy.setFlags(GridFlags.REQUIRE_CHANNEL, GridFlags.COMPRESSED_CHANNEL);
             channelProxy.setValidSides(noSides);
 
-            // The outer node is the equivalent of AE2's P2P outerProxy.  It
-            // must be world-accessible on the side facing the adjacent AE2
-            // host; leaving its side set empty makes onReady() create an
-            // isolated node that can never join the endpoint grid.
             ProxyHost outerHost = new ProxyHost(location, outerSides);
             outerProxy = new AENetworkProxy(outerHost,
                     proxyName("me_channel_caller_outer", caller, suffix),
@@ -990,10 +1001,17 @@ public final class MEChannelCallerNetwork {
             outerNode = outerProxy.getNode();
         }
 
-        private final IGridNode channelNode;
-        private final IGridNode outerNode;
-
         private boolean attachLocal() {
+            if (controllerEndpoint != null) {
+                if (!controllerEndpoint.attach()) {
+                    return false;
+                }
+                channelNode = controllerEndpoint.getChannelNode(0);
+                outerNode = controllerEndpoint.getOuterNode(0);
+                return channelNode != null && outerNode != null
+                        && sameGrid(endpoint.node, channelNode)
+                        && sameGrid(endpoint.node, outerNode);
+            }
             if (endpoint.node == null || channelNode == null || outerNode == null) {
                 return false;
             }
@@ -1007,21 +1025,12 @@ public final class MEChannelCallerNetwork {
                 return false;
             }
 
-            // onReady() normally discovers the adjacent cable through the
-            // outer proxy's valid side.  A controller or a non-cable host has
-            // no such world-facing connection, so retain the explicit
-            // fallback used by the old implementation.
-            if (!sameGrid(endpoint.node, outerNode)) {
-                IGridConnection outerConnection = connect(endpoint.node, outerNode,
-                        outerDirection);
-                if (outerConnection == null) {
-                    return false;
-                }
-                if (outerConnection != channelConnection
-                        && !connections.contains(outerConnection)) {
-                    connections.add(outerConnection);
-                }
+            IGridConnection outerConnection = connect(endpoint.node, outerNode,
+                    outerDirection);
+            if (outerConnection == null || !sameGrid(endpoint.node, outerNode)) {
+                return false;
             }
+            connections.add(outerConnection);
             if (!connections.contains(channelConnection)) {
                 connections.add(channelConnection);
             }
@@ -1033,13 +1042,18 @@ public final class MEChannelCallerNetwork {
                     || endpoint.direction.getFacing() == null) {
                 return EnumSet.noneOf(EnumFacing.class);
             }
-            // Endpoint.direction is the face on the adjacent block pointing
-            // back at the caller.  The synthetic world node is located at the
-            // caller, so its world-facing side is the opposite face.
             return EnumSet.of(endpoint.direction.getFacing().getOpposite());
         }
 
         private boolean isAlive() {
+            if (controllerEndpoint != null) {
+                return controllerEndpoint.isAlive()
+                        && channelNode != null && outerNode != null
+                        && sameGrid(endpoint.node, channelNode)
+                        && sameGrid(endpoint.node, outerNode)
+                        && hasDirectConnection(endpoint.node, channelNode)
+                        && hasDirectConnection(channelNode, outerNode);
+            }
             // Do not require the synthetic channel or outer node to be
             // active here. A listener can intentionally start with an
             // unpowered network and no available channel; the outer dense
@@ -1062,16 +1076,21 @@ public final class MEChannelCallerNetwork {
                 }
             }
             connections.clear();
-            channelProxy.invalidate();
-            outerProxy.invalidate();
+            if (controllerEndpoint != null) {
+                controllerEndpoint.destroy();
+            } else {
+                channelProxy.invalidate();
+                outerProxy.invalidate();
+            }
         }
     }
 
-    /** Supplies one P2P channel path per free face on the source controller. */
+    /** Supplies one P2P channel path per free face on a controller endpoint. */
     private static final class ControllerSource {
         private final TileMEChannelCaller caller;
         private final IGridNode controller;
         private final int requiredFaces;
+        private final boolean requireActive;
         private final List<ControllerFace> faces = new ArrayList<>();
         private final List<AEPartLocation> reservedFaces = new ArrayList<>();
         private final List<IGridConnection> connections = new ArrayList<>();
@@ -1080,9 +1099,15 @@ public final class MEChannelCallerNetwork {
 
         private ControllerSource(TileMEChannelCaller caller, IGridNode controller,
                                  int requiredFaces) {
+            this(caller, controller, requiredFaces, true);
+        }
+
+        private ControllerSource(TileMEChannelCaller caller, IGridNode controller,
+                                 int requiredFaces, boolean requireActive) {
             this.caller = caller;
             this.controller = controller;
             this.requiredFaces = Math.max(1, requiredFaces);
+            this.requireActive = requireActive;
         }
 
         private boolean attach() {
@@ -1164,10 +1189,10 @@ public final class MEChannelCallerNetwork {
             for (ControllerFace face : faces) {
                 IGridNode channel = face.channel.getNode();
                 IGridNode outer = face.outer.getNode();
-                if (!face.channel.isActive() || channel == null) {
+                if ((requireActive && !face.channel.isActive()) || channel == null) {
                     return "channel proxy is inactive on controller face " + face.direction;
                 }
-                if (!face.outer.isActive() || outer == null) {
+                if ((requireActive && !face.outer.isActive()) || outer == null) {
                     return "outer proxy is inactive on controller face " + face.direction;
                 }
                 if (!sameGrid(controller, channel)) {
@@ -1202,7 +1227,7 @@ public final class MEChannelCallerNetwork {
             ProxyHost channelHost = new ProxyHost(location, sides);
             AENetworkProxy channel = new AENetworkProxy(channelHost,
                     proxyName("me_channel_caller_controller_channel", caller, suffix),
-                    ItemStack.EMPTY, true);
+                    ItemStack.EMPTY, false);
             channelHost.setProxy(channel);
             channel.setFlags(GridFlags.REQUIRE_CHANNEL, GridFlags.COMPRESSED_CHANNEL);
             channel.setValidSides(sides);
@@ -1210,7 +1235,7 @@ public final class MEChannelCallerNetwork {
             ProxyHost outerHost = new ProxyHost(location, sides);
             AENetworkProxy outer = new AENetworkProxy(outerHost,
                     proxyName("me_channel_caller_controller_outer", caller, suffix),
-                    ItemStack.EMPTY, true);
+                    ItemStack.EMPTY, false);
             outerHost.setProxy(outer);
             outer.setFlags(GridFlags.DENSE_CAPACITY,
                     GridFlags.CANNOT_CARRY_COMPRESSED);
@@ -1234,6 +1259,12 @@ public final class MEChannelCallerNetwork {
         }
 
         @Nullable
+        private IGridNode getChannelNode(int index) {
+            return index >= 0 && index < faces.size()
+                    ? faces.get(index).channel.getNode() : null;
+        }
+
+        @Nullable
         private IGridNode getOuterNode(int index) {
             return index >= 0 && index < faces.size()
                     ? faces.get(index).outer.getNode() : null;
@@ -1244,7 +1275,7 @@ public final class MEChannelCallerNetwork {
                 return false;
             }
             for (ControllerFace face : faces) {
-                if (!face.channel.isActive() || !face.outer.isActive()
+                if ((requireActive && (!face.channel.isActive() || !face.outer.isActive()))
                         || !sameGrid(controller, face.channel.getNode())
                         || !sameGrid(controller, face.outer.getNode())
                         || !hasDirectConnection(controller, face.channel.getNode())
