@@ -573,11 +573,82 @@ public final class MEChannelCallerNetwork {
                 spec.provided = 0;
                 continue;
             }
-            Integer left = remaining.get(ref.faceKey);
-            int budget = left == null ? faceBudget(ref, ours) : left;
-            int give = Math.max(0, Math.min(ref.bottleneck, budget));
-            remaining.put(ref.faceKey, Math.max(0, budget - give));
+            // Every resource on the way to the controller is shared. Once a cable has lent
+            // its channels to one caller it cannot lend the same channels again, so two
+            // callers sitting on one line can never add up to more than that line carries.
+            int give = Integer.MAX_VALUE;
+            for (Object resource : ref.resources) {
+                int available = availableChannels(resource, remaining, ours);
+                if (available < give) {
+                    give = available;
+                }
+                if (give <= 0) {
+                    break;
+                }
+            }
+            if (give == Integer.MAX_VALUE || give < 0) {
+                give = 0;
+            }
+            for (Object resource : ref.resources) {
+                int available = availableChannels(resource, remaining, ours);
+                remaining.put(resource, Math.max(0, available - give));
+            }
             spec.provided = give;
+        }
+    }
+
+    /** Channels a shared resource can still hand out in this pass. */
+    private static int availableChannels(Object resource, Map<Object, Integer> remaining,
+                                         int ours) {
+        Integer cached = remaining.get(resource);
+        return cached != null ? cached : liveRemaining(resource, ours);
+    }
+
+    /** Channels a shared resource can hand out before anything is taken from it. */
+    private static int liveRemaining(Object resource, int ours) {
+        int capacity = resourceCapacity(resource);
+        if (capacity <= 0) {
+            return 0;
+        }
+        int used = resourceUsage(resource);
+        return Math.max(0, capacity - Math.max(0, used - ours));
+    }
+
+    private static int resourceCapacity(Object resource) {
+        if (resource instanceof IGridConnection) {
+            // A link is only as wide as the narrowest block it joins, so a normal cable
+            // must not be credited the dense figure just because it is a controller edge.
+            IGridConnection connection = (IGridConnection) resource;
+            int widest = 0;
+            try {
+                widest = Math.max(faceChannelCapacity(connection.a()),
+                        faceChannelCapacity(connection.b()));
+            } catch (Throwable ignored) {
+            }
+            return widest > 0 ? widest : normalChannelCapacity();
+        }
+        if (resource instanceof IGridNode) {
+            return faceChannelCapacity((IGridNode) resource);
+        }
+        // A directly touched controller face belongs to that one caller alone.
+        return denseChannelCapacity();
+    }
+
+    private static int resourceUsage(Object resource) {
+        if (resource instanceof IGridConnection) {
+            return usedChannelsOf((IGridConnection) resource);
+        }
+        if (resource instanceof IGridNode) {
+            return usedChannelsAt((IGridNode) resource);
+        }
+        return 0;
+    }
+
+    private static int usedChannelsOf(@Nullable IGridConnection connection) {
+        try {
+            return connection == null ? 0 : Math.max(0, connection.getUsedChannels());
+        } catch (Throwable ignored) {
+            return 0;
         }
     }
 
@@ -644,21 +715,6 @@ public final class MEChannelCallerNetwork {
         return best;
     }
 
-    /** Channels left on the controller face that pays for this path. */
-    private static int faceBudget(SourceRef ref, int ours) {
-        int capacity = denseChannelCapacity();
-        if (!(ref.faceKey instanceof IGridConnection)) {
-            // The caller touches the controller itself, so the face is dedicated to it.
-            return capacity;
-        }
-        int used = 0;
-        try {
-            used = ((IGridConnection) ref.faceKey).getUsedChannels();
-        } catch (Throwable ignored) {
-        }
-        return Math.max(0, capacity - Math.max(0, used - ours));
-    }
-
     /** Channels still free on a carrying node, ignoring what this very link already sends. */
     private static int remainingAt(@Nullable IGridNode node, int ours) {
         int level = faceChannelCapacity(node);
@@ -691,12 +747,11 @@ public final class MEChannelCallerNetwork {
 
     /** The controller face a caller is fed from, plus what that path can carry. */
     private static final class SourceRef {
-        private final Object faceKey;
-        private final int bottleneck;
+        /** Every shared resource between this face and the controller, nearest first. */
+        private final List<Object> resources;
 
-        private SourceRef(Object faceKey, int bottleneck) {
-            this.faceKey = faceKey;
-            this.bottleneck = bottleneck;
+        private SourceRef(List<Object> resources) {
+            this.resources = resources;
         }
     }
 
@@ -713,12 +768,18 @@ public final class MEChannelCallerNetwork {
         }
         if (isChannelSource(face)) {
             // The caller touches a controller directly; each caller face is its own face.
-            return new SourceRef(spec, denseChannelCapacity());
+            List<Object> direct = new ArrayList<Object>();
+            direct.add(spec);
+            return new SourceRef(direct);
         }
         int faceLevel = remainingAt(face, ours);
         Map<IGridNode, Integer> best = new IdentityHashMap<IGridNode, Integer>();
+        Map<IGridNode, List<Object>> paths = new IdentityHashMap<IGridNode, List<Object>>();
         ArrayDeque<IGridNode> queue = new ArrayDeque<IGridNode>();
         best.put(face, faceLevel);
+        List<Object> startPath = new ArrayList<Object>();
+        startPath.add(face);
+        paths.put(face, startPath);
         queue.add(face);
         SourceRef result = null;
         int scanned = 0;
@@ -747,8 +808,12 @@ public final class MEChannelCallerNetwork {
                 }
                 if (isChannelSource(other)) {
                     // The edge leaving the controller is the controller face itself.
-                    if (result == null || running > result.bottleneck) {
-                        result = new SourceRef(connection, running);
+                    List<Object> path = new ArrayList<Object>(paths.get(node));
+                    path.add(connection);
+                    Integer known = best.get(other);
+                    if (result == null || (known == null || running > known)) {
+                        best.put(other, running);
+                        result = new SourceRef(path);
                     }
                     continue;
                 }
@@ -760,6 +825,10 @@ public final class MEChannelCallerNetwork {
                 Integer existing = best.get(other);
                 if (existing == null || candidate > existing) {
                     best.put(other, candidate);
+                    List<Object> path = new ArrayList<Object>(paths.get(node));
+                    path.add(connection);
+                    path.add(other);
+                    paths.put(other, path);
                     queue.add(other);
                 }
             }
