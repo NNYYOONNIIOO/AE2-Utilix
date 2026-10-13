@@ -1,7 +1,10 @@
 package com.ae2utilix.block;
 
+import appeng.api.networking.IGrid;
 import appeng.api.implementations.items.IMemoryCard;
 import com.ae2utilix.AE2Utilix;
+import com.ae2utilix.integration.MEChannelCallerNetwork;
+import com.ae2utilix.integration.WirelessTerminalNetworkLocator;
 import com.ae2utilix.item.ItemMEChannelCaller;
 import net.minecraft.block.Block;
 import net.minecraft.block.ITileEntityProvider;
@@ -110,9 +113,19 @@ public class BlockMEChannelCaller extends Block implements ITileEntityProvider {
             boolean listenerMode = stack != null && stack.getMetadata() >= 3;
             world.setBlockState(pos, getStateFromMeta(listenerMode ? 3 : 0), 3);
             channelCaller.setListenerMode(listenerMode);
+            channelCaller.ensurePlacementOrder();
             java.util.UUID id = ItemMEChannelCaller.getChannelId(stack);
             if (id != null) {
                 channelCaller.setChannelId(id);
+            } else if (placer instanceof EntityPlayer) {
+                // A caller placed straight from the hand joins whichever network a carried
+                // wireless terminal reaches still has the most channels left.
+                IGrid network =
+                        WirelessTerminalNetworkLocator.findPlayerNetwork((EntityPlayer) placer);
+                java.util.UUID best = MEChannelCallerNetwork.selectBestChannelId(network);
+                if (best != null) {
+                    channelCaller.setChannelId(best);
+                }
             }
         }
     }

@@ -4,6 +4,7 @@ import appeng.api.AEApi;
 import appeng.api.networking.GridFlags;
 import appeng.api.networking.IGridConnection;
 import appeng.api.networking.IGridHost;
+import appeng.api.networking.IGrid;
 import appeng.api.networking.IGridNode;
 import appeng.api.networking.energy.IEnergyGrid;
 import appeng.api.parts.IPart;
@@ -299,6 +300,18 @@ public final class MEChannelCallerNetwork {
                 if (group.specs != specs) {
                     group.syncProvided(specs);
                 }
+                group.sourceGrid = senderGrid(entry.getValue());
+                long seen = Long.MAX_VALUE;
+                long earliest = Long.MAX_VALUE;
+                for (TileMEChannelCaller caller : entry.getValue()) {
+                    long order = caller.getPlacementOrder();
+                    if (order < seen) {
+                        seen = order;
+                        earliest = caller.getPos().toLong();
+                    }
+                }
+                group.firstSeen = seen;
+                group.firstPosition = earliest;
                 // Channel usage changes every tick, so it must be re-read, never cached.
                 group.refreshMetrics();
             }
@@ -378,6 +391,20 @@ public final class MEChannelCallerNetwork {
         } catch (Throwable ignored) {
             return false;
         }
+    }
+
+    /** Sender-side specs of one caller, used when matching it to a terminal's network. */
+    static List<PortSpec> describeSenderSpecs(TileMEChannelCaller caller) {
+        List<PortSpec> result = new ArrayList<PortSpec>();
+        if (caller == null) {
+            return result;
+        }
+        for (PortSpec spec : describePorts(caller)) {
+            if (spec.sender) {
+                result.add(spec);
+            }
+        }
+        return result;
     }
 
     /** One port per ME block the caller physically touches. */
@@ -554,6 +581,69 @@ public final class MEChannelCallerNetwork {
         }
     }
 
+    /** The network behind a group's sender faces, used to match a wireless terminal. */
+    @Nullable
+    private static IGrid senderGrid(List<TileMEChannelCaller> members) {
+        for (TileMEChannelCaller caller : members) {
+            if (caller == null) {
+                continue;
+            }
+            for (PortSpec spec : describeSenderSpecs(caller)) {
+                IGrid grid = gridOfNode(spec.target);
+                if (grid != null) {
+                    return grid;
+                }
+            }
+        }
+        return null;
+    }
+
+    @Nullable
+    private static IGrid gridOfNode(@Nullable IGridNode node) {
+        try {
+            return node == null ? null : node.getGrid();
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    /**
+     * Picks the UUID that still has the most channels left on the given network, which is
+     * what a freshly placed caller binds to when the player carries a wireless terminal.
+     * Ties fall back to the UUID whose caller was placed first.
+     */
+    @Nullable
+    public static UUID selectBestChannelId(@Nullable IGrid network) {
+        if (network == null) {
+            return null;
+        }
+        UUID best = null;
+        int bestRemaining = Integer.MIN_VALUE;
+        long bestSeen = Long.MAX_VALUE;
+        long bestPos = Long.MAX_VALUE;
+        for (Map.Entry<UUID, ChannelGroup> entry : GROUPS.entrySet()) {
+            ChannelGroup group = entry.getValue();
+            if (group == null || group.sourceGrid != network) {
+                continue;
+            }
+            int remaining = group.maxChannels - group.occupied;
+            if (remaining < 0) {
+                remaining = 0;
+            }
+            long pos = group.firstPosition;
+            boolean better = remaining > bestRemaining
+                    || (remaining == bestRemaining && (group.firstSeen < bestSeen
+                    || (group.firstSeen == bestSeen && pos < bestPos)));
+            if (better) {
+                best = entry.getKey();
+                bestRemaining = remaining;
+                bestSeen = group.firstSeen;
+                bestPos = pos;
+            }
+        }
+        return best;
+    }
+
     /** Channels left on the controller face that pays for this path. */
     private static int faceBudget(SourceRef ref, int ours) {
         int capacity = denseChannelCapacity();
@@ -678,7 +768,7 @@ public final class MEChannelCallerNetwork {
     }
 
     /** The ME block touched through one face, plus the caller that touches it. */
-    private static final class PortSpec {
+    static final class PortSpec {
         private final TileMEChannelCaller owner;
         private final EnumFacing face;
         private final IGridNode target;
@@ -709,6 +799,13 @@ public final class MEChannelCallerNetwork {
         private int occupied;
         private int maxChannels;
         private boolean overloaded;
+        /** Grid the group's sender faces sit on, used to match a wireless terminal's network. */
+        @Nullable
+        private IGrid sourceGrid;
+        /** Lowest registration order of its members, so ties keep the earlier block. */
+        private long firstSeen = Long.MAX_VALUE;
+        /** Packed position of its earliest member, the final deterministic tie break. */
+        private long firstPosition = Long.MAX_VALUE;
 
         private ChannelGroup(UUID id, List<PortSpec> specs) {
             this.id = id;

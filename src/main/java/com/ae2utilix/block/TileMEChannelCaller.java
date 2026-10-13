@@ -22,7 +22,6 @@ import net.minecraft.world.World;
 
 import javax.annotation.Nullable;
 import java.io.IOException;
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -45,6 +44,7 @@ public class TileMEChannelCaller extends AENetworkTile {
     private static final String NBT_REMOTE_CHANNELS = "RemoteChannels";
     private static final String NBT_MAX_CHANNELS = "MaxChannels";
     private static final String NBT_LISTENER_MODE = "ListenerMode";
+    private static final String NBT_PLACEMENT_ORDER = "PlacementOrder";
     private static final String MEMORY_SETTINGS = "ae2_utilix.me_channel_caller";
 
     @Nullable
@@ -56,6 +56,8 @@ public class TileMEChannelCaller extends AENetworkTile {
     /** Channels that link can carry, as reported by AE2's own configuration. */
     private int maxChannels;
     private boolean listenerMode;
+    /** Monotonic stamp of when this block was placed, so ties can prefer the oldest. */
+    private long placementOrder;
 
     @Nullable
     public UUID getChannelId() {
@@ -83,6 +85,24 @@ public class TileMEChannelCaller extends AENetworkTile {
 
     public int getRemoteChannels() {
         return remoteChannels;
+    }
+
+    public long getPlacementOrder() {
+        return placementOrder;
+    }
+
+    /**
+     * Stamps the placement time once, so two UUIDs with the same spare capacity can still
+     * be told apart by which caller was placed first.
+     */
+    public void ensurePlacementOrder() {
+        if (placementOrder <= 0) {
+            // World time survives a restart, unlike JVM clock readings, so "placed first"
+            // still means the same thing after the server is reloaded.
+            long stamp = world == null ? 1L : world.getTotalWorldTime();
+            placementOrder = Math.max(1L, stamp);
+            saveChanges();
+        }
     }
 
     public int getMaxChannels() {
@@ -297,6 +317,7 @@ public class TileMEChannelCaller extends AENetworkTile {
         remoteChannels = data.hasKey(NBT_REMOTE_CHANNELS) ? data.getInteger(NBT_REMOTE_CHANNELS) : 0;
         maxChannels = data.hasKey(NBT_MAX_CHANNELS) ? data.getInteger(NBT_MAX_CHANNELS) : 0;
         listenerMode = data.getBoolean(NBT_LISTENER_MODE);
+        placementOrder = data.getLong(NBT_PLACEMENT_ORDER);
     }
 
     @Override
@@ -310,6 +331,7 @@ public class TileMEChannelCaller extends AENetworkTile {
         data.setInteger(NBT_REMOTE_CHANNELS, remoteChannels);
         data.setInteger(NBT_MAX_CHANNELS, maxChannels);
         data.setBoolean(NBT_LISTENER_MODE, listenerMode);
+        data.setLong(NBT_PLACEMENT_ORDER, placementOrder);
         return data;
     }
 
