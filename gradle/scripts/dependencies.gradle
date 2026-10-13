@@ -26,7 +26,13 @@ dependencies {
 
     // Applied Energistics 2 - Supergiant (Cleanroom edition). The local jar is the
     // replacement for the old ae2uel dependency; it provides the whole ae2.* package.
-    modImplementation files('../libs/AppliedEnergistics2-Supergiant-1.0.16.jar')
+    // Applied Energistics 2 - Supergiant ships the whole ae2.* package. Local jars must be
+    // declared through the modCompileOnly/modRuntimeOnly pair, otherwise Unimined never puts
+    // them on the compile classpath.
+    // Installed into the local Maven repository as ae2:supergiant:1.0.16, because Unimined
+    // only accepts mod dependencies that resolve through a repository.
+    modCompileOnly 'ae2:supergiant:1.0.16'
+    modRuntimeOnly 'ae2:supergiant:1.0.16'
 
     // Optional integrations that still have Cleanroom builds available.
     modCompileOnly files('../libs/Baubles-1.12-1.5.2.jar')

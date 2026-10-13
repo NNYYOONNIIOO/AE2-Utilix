@@ -98,7 +98,7 @@ Supergiant 依赖：`libs\AppliedEnergistics2-Supergiant-1.0.16.jar`
       - `client/DevicePackageModel.java`
       - `item/ItemEmptyDevicePackage.java`（若存在）
       - 注意：面板设备放置不消耗包裹的已知问题需一并处理
-- [ ] 2.7 产物返回卡 / 移相卡
+- [x] 2.7 产物返回卡 / 移相卡  ← 已完成并编译通过（2026-10-13）
       - `item/ItemProductReturnCard.java`、`item/ItemPhaseCard.java`
       - `integration/ProductReturnHandler` 等相关处理
 - [ ] 2.8 耦合手杖

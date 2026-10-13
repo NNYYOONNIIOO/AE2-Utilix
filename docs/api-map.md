@@ -74,3 +74,34 @@
 - [ ] 核对网络包基类（`AppEngPacket` 不存在）的新写法。
 - [ ] 核对 GUI 基类（`AEBaseGui`/`AEBaseContainer` 存在，但 `GuiMEMonitorable`、
       `ContainerMEMonitorable` 不存在）的新体系。
+## 迁移实测补充（移相卡 / 产物返回卡）
+
+首次真实迁移验证到的差异，后续所有功能共用：
+
+| 旧写法 | Supergiant 写法 |
+|---|---|
+| `extends Item` + `this.setUnlocalizedName(x)` | `this.setTranslationKey(x)`（Cleanroom 映射） |
+| `appeng.api.implementations.IUpgradeableHost` | `ae2.api.upgrades.IUpgradeableObject` |
+| `host.getInventoryByName("upgrades")` | `host.getUpgrades()`，返回 `IUpgradeInventory` |
+| `net.minecraftforge.items.IItemHandler`（升级库存） | `ae2.api.upgrades.IUpgradeInventory`（继承 `ae2.api.inventories.InternalInventory`） |
+| `inv.getSlots()` | `inv.size()` |
+| `ipHost.selectPart(Vec3d)` | `ipHost.selectPartWorld(Vec3d)` |
+| `NBTTagCompound.hasNoTags()` | `NBTTagCompound.isEmpty()` |
+| `appeng.api.config.Upgrades`（枚举）+ `Upgrades.X.registerItem(...)` | `ae2.api.upgrades.Upgrades.add(cardItem, machineItem, max)`（静态工具类，无枚举常量） |
+| `appeng.api.implementations.items.IUpgradeModule` | 不存在；本模组改用自建 `IAE2UtilixUpgradeModule` |
+
+**依赖接入方式（重要，已验证可用）**：Unimined 只接受能通过仓库解析的 mod 依赖，
+本地 `files(...)` 声明不会进入 compileClasspath。Supergiant 的接入办法是：
+
+1. 把 jar 安装进本地 Maven 仓库：`%USERPROFILE%\.m2\repository\ae2\supergiant\1.0.16\`
+   （`supergiant-1.0.16.jar` + 同名 `.pom`）。
+2. `dependencies.gradle` 里写 `modCompileOnly 'ae2:supergiant:1.0.16'` 与
+   `modRuntimeOnly 'ae2:supergiant:1.0.16'`。
+3. 构建命令加 `--offline` 可避免代理不可用时去校验远程仓库。
+
+**构建命令（当前可用）**：
+
+```
+$env:JAVA_HOME = 'D:\java25'
+.\gradlew.bat build --console=plain --no-daemon --offline --project-cache-dir <临时目录>
+```

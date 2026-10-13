@@ -25,6 +25,12 @@ public class AE2Utilix {
     public static final String MODID = Reference.MOD_ID;
     public static final Logger LOGGER = LogManager.getLogger(Reference.MOD_NAME);
 
+    /** Upgrade card family ids, used to group the supported-machine tooltip. */
+    public static final String UPGRADE_PRODUCT_RETURN = "ae2utilix:product_return_card";
+    public static final String UPGRADE_PHASE_CARD = "ae2utilix:phase_card";
+    public static final String UPGRADE_PARALLEL_CARD = "ae2utilix:parallel_card";
+    public static final String UPGRADE_OVERFLOW_DESTRUCTION = "ae2utilix:overflow_destruction_card";
+
     /** Creative tab holding every item this mod adds. */
     public static final CreativeTabs AE2_UTILIX_TAB = new CreativeTabs(MODID) {
         @Override
