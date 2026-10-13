@@ -196,7 +196,8 @@ public class TileMEChannelCaller extends AENetworkTile {
             if (channelId != null) {
                 data.setUniqueId(NBT_CHANNEL_ID, channelId);
             }
-            data.setBoolean(NBT_LISTENER_MODE, listenerMode);
+            // Only the UUID travels on the card: the mode of this block stays behind, so
+            // pasting it elsewhere never turns a listener into a caller or the reverse.
             // AE2 renders the coloured bands on a memory card from this array, so the card
             // shows the bound UUID instead of staying plain. Each of the four colours is
             // written twice because the model draws them in pairs.
@@ -214,9 +215,6 @@ public class TileMEChannelCaller extends AENetworkTile {
             return;
         }
         setChannelId(data.getUniqueId(NBT_CHANNEL_ID));
-        if (data.hasKey(NBT_LISTENER_MODE)) {
-            setListenerMode(data.getBoolean(NBT_LISTENER_MODE));
-        }
         card.notifyUser(player, MemoryCardMessages.SETTINGS_LOADED);
         sendRoleMessage(player, "memory.loaded");
     }
