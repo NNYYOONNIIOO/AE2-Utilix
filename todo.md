@@ -38,13 +38,13 @@ Supergiant 依赖：`libs\AppliedEnergistics2-Supergiant-1.0.16.jar`
 
 ## 阶段 0：仓库与构建骨架
 
-- [ ] 0.1 `gradle.properties`：`mod_id=ae2_utilix`、`mod_name`、`root_package=com.ae2utilix`、
+- [x] 0.1 `gradle.properties`：`mod_id=ae2_utilix`、`mod_name`、`root_package=com.ae2utilix`、
       `mod_version=1.3.0`，并让产物名带 `-crl` 后缀。
-- [ ] 0.2 `build.gradle`：改成 Unimined/Cleanroom，依赖换成
+- [x] 0.2 `build.gradle`：改成 Unimined/Cleanroom，依赖换成
       `libs/AppliedEnergistics2-Supergiant-1.0.16.jar`（替换原 ae2uel 依赖）。
-- [ ] 0.3 产物命名：确认最终 jar 为 `ae2_utilix-1.3.0-crl.jar`。
-- [ ] 0.4 `.gitignore`、`settings.gradle`、`mcmod.info`、`pack.mcmeta` 按新 modid 调整。
-- [ ] 0.5 确认能 `gradlew build` 通过（空壳阶段先跑通一次）。
+- [x] 0.3 产物命名：确认最终 jar 为 `ae2_utilix-1.3.0-crl.jar`。
+- [x] 0.4 `.gitignore`、`settings.gradle`、`mcmod.info`、`pack.mcmeta` 按新 modid 调整。
+- [x] 0.5 构建骨架已验证通过：产物 `ae2_utilix-crl-1.3.0.jar`。
 
 ## 阶段 1：基础设施与 API 差异摸底
 
@@ -150,3 +150,30 @@ Supergiant 依赖：`libs\AppliedEnergistics2-Supergiant-1.0.16.jar`
 - 每完成一个功能项：编译通过后单独提交一次，提交信息写明功能名。
 - 每迁移一个功能前，先在 `docs/api-map.md` 里确认它用到的 API 已登记映射。
 - 不要修改本 TODO 中"不迁移"的功能；通用系列由 Supergiant 自带。
+---
+
+## 本机构建环境（已跑通，照此执行）
+
+构建必须用 Java 25，且需要走代理下载依赖：
+
+```
+$env:JAVA_HOME = 'D:\java25'
+.\gradlew.bat build --console=plain --no-daemon --project-cache-dir <临时目录>
+```
+
+- 本机默认 java 是 1.8，模板要求 Java 25 工具链（`java.toolchain = Java 25`），
+  不设 `JAVA_HOME` 会在 Unimined 阶段失败。
+- 代理：`127.0.0.1:7897`。wrapper 下载 Gradle 发行包时必须走代理，
+  已写在 `gradle.properties` 的 `systemProp.*.proxy*`。
+- 首次构建约 3m45s（含下载 Minecraft/配置 Unimined），后续会快。
+- 产物：`build/libs/ae2_utilix-crl-1.3.0.jar`（另有 `-dev` 与 `-sources`）。
+- 已验证通过时间：2026-10-13 20:28。
+
+## 用户已确认的迁移范围调整
+
+- 样板终端（方块）**不兼容 AE2FC 流体样板**，Supergiant 自带样板功能，直接调用其 API；
+  也不再有 AE2FC/RandomComplement 的 mixin。
+- Mekanism Energistics（气体）、ThaumicEnergistics（源质）、NAE2、RandomComplement、
+  AE2 Better Magnet Card **全部不兼容**（无对应 Supergiant 版本）。
+- theoneprobe 在 CRL 下可用，TOP 集成保留。
+- Baubles、CraftTweaker 依赖文件已复制到 `libs/` 并在依赖脚本中登记。
