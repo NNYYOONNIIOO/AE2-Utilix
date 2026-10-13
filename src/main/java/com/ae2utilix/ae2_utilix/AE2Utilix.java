@@ -31,6 +31,10 @@ public class AE2Utilix {
     public static final String UPGRADE_PARALLEL_CARD = "ae2utilix:parallel_card";
     public static final String UPGRADE_OVERFLOW_DESTRUCTION = "ae2utilix:overflow_destruction_card";
 
+    /** Phase interface block; only constructed when the feature is enabled. */
+    public static final com.ae2utilix.ae2_utilix.block.BlockPhaseInterface BLOCK_PHASE_INTERFACE =
+            new com.ae2utilix.ae2_utilix.block.BlockPhaseInterface();
+
     /** Ported items. Blocks and tile entities are added here as they are migrated. */
     public static final com.ae2utilix.ae2_utilix.item.ItemMatterDecomposer MATTER_DECOMPOSER =
             new com.ae2utilix.ae2_utilix.item.ItemMatterDecomposer();

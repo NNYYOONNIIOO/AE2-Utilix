@@ -1,0 +1,12 @@
+{
+    "parent": "block/cube",
+    "textures": {
+        "particle": "ae2_utilix:blocks/phase_interface",
+        "down": "ae2_utilix:blocks/phase_interface_alternate",
+        "up": "ae2_utilix:blocks/phase_interface",
+        "north": "ae2_utilix:blocks/phase_interface_alternate_arrow",
+        "south": "ae2_utilix:blocks/phase_interface_alternate_arrow",
+        "east": "ae2_utilix:blocks/phase_interface_alternate_arrow",
+        "west": "ae2_utilix:blocks/phase_interface_alternate_arrow"
+    }
+}

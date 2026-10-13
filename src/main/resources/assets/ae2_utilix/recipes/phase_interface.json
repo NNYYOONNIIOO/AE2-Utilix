@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    " W ",
+    " I ",
+    " C "
+  ],
+  "key": {
+    "W": { "item": "appliedenergistics2:wireless_access_point" },
+    "I": { "item": "appliedenergistics2:interface" },
+    "C": { "item": "appliedenergistics2:material", "data": 9 }
+  },
+  "result": {
+    "item": "ae2_utilix:phase_interface",
+    "count": 1
+  }
+}

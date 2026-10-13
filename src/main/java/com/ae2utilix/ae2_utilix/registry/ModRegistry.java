@@ -27,6 +27,10 @@ public final class ModRegistry {
         if (AE2UtilixConfig.registerPhaseCard) {
             registerItem(AE2Utilix.PHASE_CARD);
         }
+        if (AE2UtilixConfig.registerPhaseInterface) {
+            registerBlock(AE2Utilix.BLOCK_PHASE_INTERFACE, "phase_interface");
+            registerTile("phase_interface", com.ae2utilix.ae2_utilix.block.TilePhaseInterface.class);
+        }
     }
 
     /** Crafting recipes that cannot be expressed as plain JSON. */
@@ -35,5 +39,30 @@ public final class ModRegistry {
 
     private static void registerItem(Item item) {
         GameRegistry.findRegistry(Item.class).register(item);
+    }
+
+    /**
+     * Registers an AE2 style block together with its item form.
+     *
+     * <p>Supergiant's own blocks use {@code BlockDefinition}, but that class assigns the
+     * registry name in its constructor and would require an AE2-owned creative tab. This
+     * port keeps its own tab, so the block and its item are registered explicitly.</p>
+     */
+    private static void registerBlock(net.minecraft.block.Block block, String path) {
+        block.setRegistryName(AE2Utilix.MODID, path);
+        block.setTranslationKey(AE2Utilix.MODID + "." + path);
+        block.setCreativeTab(AE2Utilix.AE2_UTILIX_TAB);
+        GameRegistry.findRegistry(net.minecraft.block.Block.class).register(block);
+        net.minecraft.item.Item itemBlock = block instanceof ae2.block.AEBaseBlock
+                ? new ae2.block.AEBaseBlockItem(block)
+                : new net.minecraft.item.ItemBlock(block);
+        itemBlock.setRegistryName(AE2Utilix.MODID, path);
+        itemBlock.setTranslationKey(AE2Utilix.MODID + "." + path);
+        itemBlock.setCreativeTab(AE2Utilix.AE2_UTILIX_TAB);
+        registerItem(itemBlock);
+    }
+
+    private static void registerTile(String path, Class<? extends net.minecraft.tileentity.TileEntity> tileClass) {
+        GameRegistry.registerTileEntity(tileClass, new net.minecraft.util.ResourceLocation(AE2Utilix.MODID, path));
     }
 }
