@@ -1,0 +1,14 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "QRQ",
+    "QLQ",
+    "QQQ"
+  ],
+  "key": {
+    "Q": { "item": "appliedenergistics2:quantum_ring" },
+    "R": { "item": "appliedenergistics2:material", "data": 41 },
+    "L": { "item": "appliedenergistics2:quantum_link" }
+  },
+  "result": { "item": "ae2_utilix:me_channel_caller", "count": 1 }
+}
