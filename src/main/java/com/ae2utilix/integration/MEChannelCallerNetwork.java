@@ -440,25 +440,21 @@ public final class MEChannelCallerNetwork {
     private static IGridNode findFaceNode(TileEntity target, EnumFacing fromTargetToCaller) {
         AEPartLocation side = AEPartLocation.fromFacing(fromTargetToCaller);
         try {
-            if (target instanceof TileCableBus) {
-                TileCableBus cable = (TileCableBus) target;
-                IGridNode node = cable.getGridNode(side);
+            if (target instanceof IPartHost) {
+                // Look at the part on exactly this side and never fall back to the cable
+                // bus centre: a cable anchor or quartz fibre occupies that side as a
+                // deliberate channel break, and the centre node would step straight over
+                // it. A side whose part has no node simply provides no channels.
+                IPart part = ((IPartHost) target).getPart(fromTargetToCaller);
+                if (part == null) {
+                    return target instanceof TileCableBus
+                            ? centerNode((TileCableBus) target) : null;
+                }
+                IGridNode node = part.getExternalFacingNode();
                 if (node == null) {
-                    node = cable.getGridNode(AEPartLocation.INTERNAL);
+                    node = part.getGridNode();
                 }
                 return node;
-            }
-            if (target instanceof IPartHost) {
-                IPart part = ((IPartHost) target).getPart(fromTargetToCaller);
-                if (part != null) {
-                    IGridNode node = part.getExternalFacingNode();
-                    if (node == null) {
-                        node = part.getGridNode();
-                    }
-                    if (node != null) {
-                        return node;
-                    }
-                }
             }
             if (target instanceof IGridHost) {
                 IGridHost host = (IGridHost) target;
@@ -473,6 +469,16 @@ public final class MEChannelCallerNetwork {
                     "ME channel caller could not read the node of a touched block", error);
         }
         return null;
+    }
+
+    /** The channel carrying centre of a plain cable bus side that holds no part. */
+    @Nullable
+    private static IGridNode centerNode(TileCableBus cable) {
+        try {
+            return cable.getGridNode(AEPartLocation.INTERNAL);
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     private static void destroyGroup(@Nullable ChannelGroup group) {
