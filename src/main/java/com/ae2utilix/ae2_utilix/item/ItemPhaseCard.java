@@ -32,6 +32,7 @@ public class ItemPhaseCard extends Item implements com.ae2utilix.ae2_utilix.upgr
     public ItemPhaseCard() {
         this.setTranslationKey(AE2Utilix.MODID + ".phase_card");
         
+        this.setRegistryName(AE2Utilix.MODID, "phase_card");
         this.setMaxStackSize(64);
         this.setCreativeTab(AE2Utilix.AE2_UTILIX_TAB);
     }

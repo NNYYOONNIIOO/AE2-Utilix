@@ -103,14 +103,14 @@ Supergiant 依赖：`libs\AppliedEnergistics2-Supergiant-1.0.16.jar`
       - `integration/ProductReturnHandler` 等相关处理
 - [ ] 2.8 耦合手杖
       - `item/ItemCouplingStaff.java`
-- [ ] 2.9 物质分解器
+- [x] 2.9 物质分解器  ← 已完成并编译通过
       - `item/ItemMatterDecomposer.java`
 - [ ] 2.10 ME 接口放入磁引卡
       - 源参考：`integration/BMCCompat.java`、`BMCMagnetHelper.java`、`BMCInteractionHandler.java`
         （这些是 AE2 Better Magnet Card 联动，**只保留"接口内放卡"功能本体**）
       - `mixin/MixinAEBaseContainer.java`、`mixin/MixinDualityInterface.java`
       - 注意：Supergiant 里 DualityInterface 改名，需先查清新名字
-- [ ] 2.11 卡片类基础设施
+- [x] 2.11 卡片类基础设施  ← 已完成（自建 IAE2UtilixUpgradeModule + ModUpgradeRegistry）
       - `item/IAE2UtilixUpgradeModule.java`、`IAE2UtilixExtendedUpgradeInventory.java`
       - `item/ItemParallelCard.java`、`item/ItemOverflowDestructionCard.java`（被上述功能依赖）
       - `mixin/MixinUpgradeInventory.java`、`mixin/MixinUpgradeInvFilter.java`

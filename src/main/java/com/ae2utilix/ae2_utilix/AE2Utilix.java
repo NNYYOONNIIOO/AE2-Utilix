@@ -31,6 +31,14 @@ public class AE2Utilix {
     public static final String UPGRADE_PARALLEL_CARD = "ae2utilix:parallel_card";
     public static final String UPGRADE_OVERFLOW_DESTRUCTION = "ae2utilix:overflow_destruction_card";
 
+    /** Ported items. Blocks and tile entities are added here as they are migrated. */
+    public static final com.ae2utilix.ae2_utilix.item.ItemMatterDecomposer MATTER_DECOMPOSER =
+            new com.ae2utilix.ae2_utilix.item.ItemMatterDecomposer();
+    public static final com.ae2utilix.ae2_utilix.item.ItemProductReturnCard PRODUCT_RETURN_CARD =
+            new com.ae2utilix.ae2_utilix.item.ItemProductReturnCard();
+    public static final com.ae2utilix.ae2_utilix.item.ItemPhaseCard PHASE_CARD =
+            new com.ae2utilix.ae2_utilix.item.ItemPhaseCard();
+
     /** Creative tab holding every item this mod adds. */
     public static final CreativeTabs AE2_UTILIX_TAB = new CreativeTabs(MODID) {
         @Override

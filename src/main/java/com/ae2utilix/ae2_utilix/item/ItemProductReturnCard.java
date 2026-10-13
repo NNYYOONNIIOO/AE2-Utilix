@@ -30,6 +30,7 @@ public class ItemProductReturnCard extends Item implements com.ae2utilix.ae2_uti
     public ItemProductReturnCard() {
         this.setTranslationKey(AE2Utilix.MODID + ".product_return_card");
         
+        this.setRegistryName(AE2Utilix.MODID, "product_return_card");
         this.setMaxStackSize(64);
         this.setCreativeTab(AE2Utilix.AE2_UTILIX_TAB);
     }
