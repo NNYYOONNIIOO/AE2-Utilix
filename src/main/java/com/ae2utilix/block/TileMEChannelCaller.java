@@ -3,6 +3,7 @@ package com.ae2utilix.block;
 import appeng.api.implementations.items.IMemoryCard;
 import appeng.api.implementations.items.MemoryCardMessages;
 import appeng.api.networking.IGridNode;
+import appeng.api.util.AEColor;
 import appeng.api.util.AEPartLocation;
 import appeng.tile.grid.AENetworkTile;
 import com.ae2utilix.AE2Utilix;
@@ -196,6 +197,10 @@ public class TileMEChannelCaller extends AENetworkTile {
                 data.setUniqueId(NBT_CHANNEL_ID, channelId);
             }
             data.setBoolean(NBT_LISTENER_MODE, listenerMode);
+            // AE2 renders the coloured bands on a memory card from this array, so the card
+            // shows the bound UUID instead of staying plain. Each of the four colours is
+            // written twice because the model draws them in pairs.
+            data.setIntArray("colorCode", colorCodeFor(channelId));
             card.setMemoryCardContents(held, MEMORY_SETTINGS, data);
             card.notifyUser(player, MemoryCardMessages.SETTINGS_SAVED);
             sendRoleMessage(player, "memory.saved");
@@ -214,6 +219,24 @@ public class TileMEChannelCaller extends AENetworkTile {
         }
         card.notifyUser(player, MemoryCardMessages.SETTINGS_LOADED);
         sendRoleMessage(player, "memory.loaded");
+    }
+
+    /**
+     * Four colours derived from the channel UUID, mirrored into the eight entries AE2's
+     * memory card model expects.
+     */
+    private static int[] colorCodeFor(@Nullable UUID id) {
+        int seed = id == null ? 0 : id.hashCode();
+        AEColor[] palette = AEColor.values();
+        // Ordinal 0 is transparent, which draws nothing, so start past it.
+        int usable = Math.max(1, palette.length - 1);
+        int[] code = new int[8];
+        for (int i = 0; i < 4; i++) {
+            int slot = 1 + Math.floorMod((seed >>> (i * 5)) & 0x1F, usable);
+            code[i * 2] = palette[slot].ordinal();
+            code[i * 2 + 1] = palette[slot].ordinal();
+        }
+        return code;
     }
 
     private void sendRoleMessage(EntityPlayer player, String suffix) {
