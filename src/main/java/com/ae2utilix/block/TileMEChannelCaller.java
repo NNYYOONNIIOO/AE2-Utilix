@@ -45,7 +45,9 @@ public class TileMEChannelCaller extends AENetworkTile {
     private static final String NBT_MAX_CHANNELS = "MaxChannels";
     private static final String NBT_LISTENER_MODE = "ListenerMode";
     private static final String NBT_PLACEMENT_ORDER = "PlacementOrder";
-    private static final String MEMORY_SETTINGS = "ae2_utilix.me_channel_caller";
+    /** Memory card settings name; AE2 looks up "<name>.name" for the card tooltip. */
+    private static final String MEMORY_SETTINGS = "tile.ae2_utilix.me_channel_caller";
+    private static final String MEMORY_SETTINGS_LISTENER = "tile.ae2_utilix.me_channel_listener";
 
     @Nullable
     private UUID channelId;
@@ -222,9 +224,10 @@ public class TileMEChannelCaller extends AENetworkTile {
             // shows the bound UUID instead of staying plain. Each of the four colours is
             // written twice because the model draws them in pairs.
             data.setIntArray("colorCode", colorCodeFor(channelId));
-            card.setMemoryCardContents(held, MEMORY_SETTINGS, data);
+            String settings = listenerMode ? MEMORY_SETTINGS_LISTENER : MEMORY_SETTINGS;
+            card.setMemoryCardContents(held, settings, data);
+            // AE2 already reports "saved to the memory card", so no second chat line here.
             card.notifyUser(player, MemoryCardMessages.SETTINGS_SAVED);
-            sendRoleMessage(player, "memory.saved");
             return;
         }
 
@@ -236,7 +239,6 @@ public class TileMEChannelCaller extends AENetworkTile {
         }
         setChannelId(data.getUniqueId(NBT_CHANNEL_ID));
         card.notifyUser(player, MemoryCardMessages.SETTINGS_LOADED);
-        sendRoleMessage(player, "memory.loaded");
     }
 
     /**

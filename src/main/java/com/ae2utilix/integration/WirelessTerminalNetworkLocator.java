@@ -44,7 +44,24 @@ public final class WirelessTerminalNetworkLocator {
                 return grid;
             }
         }
-        return null;
+        return networkOfBaubles(player);
+    }
+
+    /**
+     * Looks through the Baubles slots as well. Baubles is an optional dependency, so the
+     * integration class is only touched reflectively and its absence changes nothing.
+     */
+    @Nullable
+    private static IGrid networkOfBaubles(EntityPlayer player) {
+        try {
+            Class<?> integration = Class.forName("com.ae2utilix.integration.BaublesIntegration");
+            Object result = integration.getMethod("findTerminalNetwork", EntityPlayer.class)
+                    .invoke(null, player);
+            return result instanceof IGrid ? (IGrid) result : null;
+        } catch (Throwable ignored) {
+            // Baubles is not installed, or the integration is disabled.
+            return null;
+        }
     }
 
     /** The network one terminal item is linked to, or null when it is not linked. */

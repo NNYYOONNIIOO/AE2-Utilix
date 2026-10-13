@@ -19,6 +19,8 @@ import net.minecraftforge.common.capabilities.ICapabilityProvider;
 import net.minecraftforge.event.AttachCapabilitiesEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 
+import javax.annotation.Nullable;
+
 public class BaublesIntegration {
 
     public static void init() {
@@ -36,6 +38,34 @@ public class BaublesIntegration {
                 );
             }
         }
+    }
+
+    /**
+     * Network of a wireless terminal sitting in the player's bauble slots, or null when
+     * none of them is a linked terminal. Baubles keeps its own inventory, so the normal
+     * player inventory scan cannot see these.
+     */
+    @Nullable
+    public static appeng.api.networking.IGrid findTerminalNetwork(EntityPlayer player) {
+        if (player == null) {
+            return null;
+        }
+        try {
+            IBaublesItemHandler handler = BaublesApi.getBaublesHandler(player);
+            if (handler == null) {
+                return null;
+            }
+            for (int i = 0; i < handler.getSlots(); i++) {
+                appeng.api.networking.IGrid grid =
+                        WirelessTerminalNetworkLocator.networkOf(handler.getStackInSlot(i));
+                if (grid != null) {
+                    return grid;
+                }
+            }
+        } catch (Throwable ignored) {
+            // A bauble slot that misbehaves simply does not take part in the search.
+        }
+        return null;
     }
 
     public static void chargeBaublesInventory(ItemStack coreStack, EntityPlayer player) {
