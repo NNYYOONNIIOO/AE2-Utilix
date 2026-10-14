@@ -97,6 +97,8 @@ dependencies {
     // Mixin runtime is provided by Cleanroom itself; only the annotations and the
     // annotation processor are needed at compile time.
     compileOnly 'com.cleanroommc:sponge-mixin:0.20.12+mixin.0.8.7'
+    // MixinExtras ships with Cleanroom at runtime; only needed at compile time here.
+    compileOnly 'com.cleanroommc:mixinextras-common:0.5.5'
     annotationProcessor 'com.cleanroommc:cleanmix:0.7.2'
 
     if (use_asset_mover.toBoolean()) {

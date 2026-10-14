@@ -19,6 +19,7 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import com.llamalad7.mixinextras.injector.ModifyReturnValue;
 
 /**
  * Drives the magnet card and product return card for AE2's own pattern providers.
@@ -64,22 +65,21 @@ public abstract class MixinPatternProviderLogicTicker {
      * Keeps the provider awake only while it actually has periodic work: a magnet card
      * always scans for drops, the return card only while outputs are outstanding.
      */
-    @Inject(method = "getTickingRequest", at = @At("RETURN"), remap = false, require = 1)
-    private void ae2utilix$stayAwakeForUpgrades(IGridNode node,
-                                                CallbackInfoReturnable<TickingRequest> cir) {
-        TickingRequest original = cir.getReturnValue();
+    @ModifyReturnValue(method = "getTickingRequest", at = @At("RETURN"), remap = false, require = 1)
+    private TickingRequest ae2utilix$stayAwakeForUpgrades(TickingRequest original, IGridNode node) {
         if (original == null || !original.isSleeping()) {
-            return;
+            return original;
         }
         var upgrades = this.ae2utilix$logic().getUpgrades();
         boolean hasMagnet = MachineMagnetHandler.hasMagnetCard(upgrades);
         boolean needsPolling = this.ae2utilix$tracker().isWaiting();
         if (hasMagnet || needsPolling) {
-            cir.setReturnValue(new TickingRequest(original.minTickRate(), original.maxTickRate(), false));
+            return new TickingRequest(original.minTickRate(), original.maxTickRate(), false);
         }
+        return original;
     }
 
-    @Inject(method = "tickingRequest", at = @At("RETURN"), remap = false, require = 1)
+    @Inject(method = "tickingRequest", at = @At("RETURN"), remap = false, require = 1, cancellable = true)
     private void ae2utilix$periodicWork(IGridNode node, int ticksSinceLastCall,
                                         CallbackInfoReturnable<TickRateModulation> cir) {
         if (!this.ae2utilix$access().ae2utilix$mainNode().isActive()) {

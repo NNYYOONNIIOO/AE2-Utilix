@@ -16,6 +16,7 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import com.llamalad7.mixinextras.injector.ModifyReturnValue;
 
 /**
  * Runs the magnet card pickup for AE2's own ME interface.
@@ -53,20 +54,19 @@ public abstract class MixinInterfaceLogicTicker {
     }
 
     /** Keeps a sleeping interface awake while a magnet card is installed. */
-    @Inject(method = "getTickingRequest", at = @At("RETURN"), remap = false, require = 1)
-    private void ae2utilix$stayAwakeForMagnet(IGridNode node,
-                                              CallbackInfoReturnable<TickingRequest> cir) {
-        TickingRequest original = cir.getReturnValue();
+    @ModifyReturnValue(method = "getTickingRequest", at = @At("RETURN"), remap = false, require = 1)
+    private TickingRequest ae2utilix$stayAwakeForMagnet(TickingRequest original, IGridNode node) {
         if (original == null || !original.isSleeping()) {
-            return;
+            return original;
         }
         var upgrades = this.this$0.getUpgrades();
         if (MachineMagnetHandler.hasMagnetCard(upgrades)) {
-            cir.setReturnValue(new TickingRequest(original.minTickRate(), original.maxTickRate(), false));
+            return new TickingRequest(original.minTickRate(), original.maxTickRate(), false);
         }
+        return original;
     }
 
-    @Inject(method = "tickingRequest", at = @At("RETURN"), remap = false, require = 1)
+    @Inject(method = "tickingRequest", at = @At("RETURN"), remap = false, require = 1, cancellable = true)
     private void ae2utilix$magnetTick(IGridNode node, int ticksSinceLastCall,
                                       CallbackInfoReturnable<TickRateModulation> cir) {
         if (!this.ae2utilix$mainNode().isActive()) {
