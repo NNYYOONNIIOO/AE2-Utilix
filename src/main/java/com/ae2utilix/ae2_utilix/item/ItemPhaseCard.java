@@ -6,7 +6,7 @@ import com.ae2utilix.ae2_utilix.AE2Utilix;
 import net.minecraft.client.resources.I18n;
 import net.minecraft.client.util.ITooltipFlag;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.item.Item;
+import ae2.items.materials.UpgradeCardItem;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.tileentity.TileEntity;
@@ -25,7 +25,7 @@ import ae2.api.upgrades.IUpgradeInventory;
 import javax.annotation.Nullable;
 import java.util.List;
 
-public class ItemPhaseCard extends Item implements com.ae2utilix.ae2_utilix.upgrade.IAE2UtilixUpgradeModule {
+public class ItemPhaseCard extends UpgradeCardItem implements com.ae2utilix.ae2_utilix.upgrade.IAE2UtilixUpgradeModule {
 
     private static final String NBT_TAG = "ae2utilix_phase_face";
 
@@ -163,7 +163,7 @@ public class ItemPhaseCard extends Item implements com.ae2utilix.ae2_utilix.upgr
 
     @SideOnly(Side.CLIENT)
     @Override
-    public void addInformation(ItemStack stack, @Nullable World worldIn, List<String> tooltip, ITooltipFlag flagIn) {
+    protected void addCheckedInformation(ItemStack stack, @Nullable World worldIn, List<String> tooltip, ITooltipFlag flagIn) {
         EnumFacing face = getFace(stack);
         if (face != null) {
             tooltip.add(I18n.format("item.ae2_utilix.phase_card.tooltip.1",

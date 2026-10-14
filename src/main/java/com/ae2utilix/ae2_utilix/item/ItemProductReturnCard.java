@@ -4,10 +4,11 @@ import ae2.api.parts.IPartHost;
 import ae2.api.parts.SelectedPart;
 import com.ae2utilix.ae2_utilix.AE2Utilix;
 import com.ae2utilix.ae2_utilix.upgrade.ModUpgradeRegistry;
+import com.ae2utilix.ae2_utilix.upgrade.IAE2UtilixUpgradeModule;
 import net.minecraft.client.resources.I18n;
 import net.minecraft.client.util.ITooltipFlag;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.item.Item;
+import ae2.items.materials.UpgradeCardItem;
 import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumActionResult;
@@ -25,7 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-public class ItemProductReturnCard extends Item implements com.ae2utilix.ae2_utilix.upgrade.IAE2UtilixUpgradeModule {
+public class ItemProductReturnCard extends UpgradeCardItem implements IAE2UtilixUpgradeModule {
 
     public ItemProductReturnCard() {
         this.setTranslationKey(AE2Utilix.MODID + ".product_return_card");
@@ -93,7 +94,7 @@ public class ItemProductReturnCard extends Item implements com.ae2utilix.ae2_uti
 
     @SideOnly(Side.CLIENT)
     @Override
-    public void addInformation(ItemStack stack, @Nullable World worldIn, List<String> tooltip, ITooltipFlag flagIn) {
+    protected void addCheckedInformation(ItemStack stack, @Nullable World worldIn, List<String> tooltip, ITooltipFlag flagIn) {
         tooltip.add(I18n.format("item.ae2_utilix.product_return_card.tooltip.1"));
         addSupportedTooltip(getUpgradeTypeId(), tooltip);
     }

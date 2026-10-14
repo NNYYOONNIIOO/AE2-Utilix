@@ -1,7 +1,8 @@
 {
-  "variants": {
-    "normal": {
-      "model": "ae2_utilix:crystal_growth_chamber_block"
+    "variants": {
+        "facing=north": { "model": "ae2_utilix:crystal_growth_chamber_block" },
+        "facing=south": { "model": "ae2_utilix:crystal_growth_chamber_block", "y": 180 },
+        "facing=west":  { "model": "ae2_utilix:crystal_growth_chamber_block", "y": 270 },
+        "facing=east":  { "model": "ae2_utilix:crystal_growth_chamber_block", "y": 90 }
     }
-  }
 }

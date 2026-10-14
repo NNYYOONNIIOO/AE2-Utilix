@@ -25,14 +25,19 @@ public class CommonProxy implements IProxy, IGuiHandler {
     }
 
     @Override
+    public void postInit(FMLPostInitializationEvent event) {
+        // AE2 finishes its own upgrade tables during post-init, so card associations are
+        // registered afterwards to make sure both sides are present.
+        com.ae2utilix.ae2_utilix.registry.ModUpgrades.register();
+    }
+
+    @Override
     public void init(FMLInitializationEvent event) {
         com.ae2utilix.ae2_utilix.registry.ModRegistry.registerRecipes();
         NetworkRegistry.INSTANCE.registerGuiHandler(AE2Utilix.instance(), this);
     }
 
-    @Override
-    public void postInit(FMLPostInitializationEvent event) {
-    }
+
 
     @Override
     public Object getServerGuiElement(int id, EntityPlayer player, World world, int x, int y, int z) {
