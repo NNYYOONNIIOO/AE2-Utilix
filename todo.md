@@ -26,7 +26,7 @@ Supergiant 依赖：`libs\AppliedEnergistics2-Supergiant-1.0.16.jar`
 2. 移相卡（Phase Card）
 3. 耦合手杖（Coupling Staff）
 4. 物质分解器（Matter Decomposer）
-5. 打包器 + 设备包裹 + 空设备包裹
+5. ~~打包器 + 设备包裹 + 空设备包裹~~ —— **不迁移**：Supergiant 自带 ME封装胶带（`ae2:me_packing_tape`）与封装设备（`ae2:package`），可打包 ME 接口 / 样板供应器 / ME 驱动器方块及接口 / 样板供应器面板，并完整保留状态。
 6. 相位 ME 接口
 7. 晶体培育仓
 8. ME 频道呼喊器 / ME 频道监听器
@@ -93,11 +93,10 @@ Supergiant 依赖：`libs\AppliedEnergistics2-Supergiant-1.0.16.jar`
       - `integration/crt/CrystalGrowthChamberHandler.java`（CraftTweaker，可选）
       - `gui/GuiCrystalGrowthChamber.java`、对应 Container
       - 配方资源：`recipes/fluix_crystal.json`、`recipes/meteorite_*_budding.json`
-- [ ] 2.6 打包器 / 设备包裹 / 空设备包裹
-      - `item/ItemPacker.java`、`item/ItemDevicePackage.java`
-      - `client/DevicePackageModel.java`
-      - `item/ItemEmptyDevicePackage.java`（若存在）
-      - 注意：面板设备放置不消耗包裹的已知问题需一并处理
+- [x] 2.6 ~~打包器 / 设备包裹 / 空设备包裹~~ —— **不迁移**（2026-10-14 确认）
+      - Supergiant 自带 `ae2:me_packing_tape`（ME封装胶带）与 `ae2:package`（封装设备），
+        白名单覆盖 ME 接口 / 样板供应器 / ME 驱动器方块，以及接口 / 样板供应器面板，状态完整保留。
+      - 本模组原有的打包器（Packer）与设备包裹（Device Package）不再移植。
 - [x] 2.7 产物返回卡 / 移相卡  ← 已完成并编译通过（2026-10-13）
       - `item/ItemProductReturnCard.java`、`item/ItemPhaseCard.java`
       - `integration/ProductReturnHandler` 等相关处理
