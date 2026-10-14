@@ -60,14 +60,21 @@ public abstract class MixinPatternProviderLogic {
      */
     @Unique
     private EnumFacing ae2utilix$linkedFace(EnumFacing fallback) {
-        TileEntity tile = this.host.getTileEntity();
-        if (!(tile instanceof IPhaseLinkHost)) {
-            return fallback;
-        }
+        // A phase card applies to every pattern provider, AE2's own included: it selects
+        // which side of the adjacent machine receives the crafted inputs, and needs no
+        // coupling link at all. This must be read before the link host check below, because
+        // AE2's pattern provider is not a phase link host and would otherwise bail out here.
         EnumFacing cardFace = com.ae2utilix.ae2_utilix.block.TilePhasedPatternProvider
                 .phaseCardFace(this.host.getUpgrades());
         if (cardFace != null) {
             return cardFace;
+        }
+
+        // The coupling staff is only available on the phase pattern provider; when one is
+        // linked, its recorded face is the fallback for the machine side to address.
+        TileEntity tile = this.host.getTileEntity();
+        if (!(tile instanceof IPhaseLinkHost)) {
+            return fallback;
         }
         IPhaseLinkHost link = (IPhaseLinkHost) tile;
         if (!link.hasLinkData() || !link.isLinkValid()) {
