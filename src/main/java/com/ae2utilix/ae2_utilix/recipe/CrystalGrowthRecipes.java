@@ -23,7 +23,7 @@ public class CrystalGrowthRecipes {
         List<String> recipeFiles = new ArrayList<>();
         // Only resources shipped by this version are loaded. Missing optional files
         // must not make the built-in recipe initialization look broken.
-        recipeFiles.add("assets/ae2_utilix/recipes/fluix_crystal.json");
+        recipeFiles.add("assets/ae2_utilix/crystal_growth/fluix_crystal.json");
 
         for (String path : recipeFiles) {
             java.io.InputStream stream = CrystalGrowthRecipes.class.getClassLoader().getResourceAsStream(path);
