@@ -177,24 +177,19 @@ public class TilePhasedPatternProvider extends TilePatternProvider implements IP
     }
 
     /**
-     * Capability faces to try, most specific first.
+     * Capability faces the product return card searches, in a fixed order.
      *
-     * <p>A marked phase card, or a coupling staff link, contributes the preferred face.
-     * Every other side follows, because a machine may only expose its output slot on a
-     * single side (a vanilla furnace, for instance, only offers products on its bottom).
-     * The extractor only ever removes stacks that match the pattern outputs, so the
-     * additional faces cannot pull fuel or inputs.</p>
+     * <p>The product return card is independent of the phase card: the phase card only
+     * decides which side receives the crafted inputs, while the return card has to locate
+     * the machine output slot itself. A machine may only expose that slot on one side (a
+     * vanilla furnace, for instance, only offers products through its bottom face), so all
+     * six sides are probed. The extractor only ever removes stacks that match the pattern
+     * outputs, so probing every side cannot pull fuel or ingredients out.</p>
      */
     private java.util.List<net.minecraft.util.EnumFacing> ae2utilix$returnFaces() {
         java.util.List<net.minecraft.util.EnumFacing> faces = new java.util.ArrayList<>();
-        net.minecraft.util.EnumFacing preferred = ae2utilix$preferredFace();
-        if (preferred != null) {
-            faces.add(preferred);
-        }
         for (net.minecraft.util.EnumFacing side : net.minecraft.util.EnumFacing.values()) {
-            if (!faces.contains(side)) {
-                faces.add(side);
-            }
+            faces.add(side);
         }
         return faces;
     }
