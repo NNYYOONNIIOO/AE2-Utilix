@@ -36,6 +36,21 @@ public class AE2Utilix {
     public static final String UPGRADE_PRODUCT_RETURN = "ae2utilix:product_return_card";
     public static final String UPGRADE_PHASE_CARD = "ae2utilix:phase_card";
 
+    /**
+     * Creative tab holding every item this mod adds.
+     *
+     * <p>This field must be declared before the item fields below: static initializers run
+     * in declaration order, and each item assigns itself to this tab from its constructor.
+     * When the tab is created later, those items silently keep a null tab and never show up
+     * in the creative menu.</p>
+     */
+    public static final CreativeTabs AE2_UTILIX_TAB = new CreativeTabs(MODID) {
+        @Override
+        public ItemStack createIcon() {
+            return new ItemStack(PRODUCT_RETURN_CARD);
+        }
+    };
+
     /** Phase pattern provider block; only constructed when the feature is enabled. */
     public static final com.ae2utilix.ae2_utilix.block.BlockPhasedPatternProvider BLOCK_PHASE_PATTERN_PROVIDER =
             new com.ae2utilix.ae2_utilix.block.BlockPhasedPatternProvider();
@@ -53,14 +68,6 @@ public class AE2Utilix {
             new com.ae2utilix.ae2_utilix.item.ItemProductReturnCard();
     public static final com.ae2utilix.ae2_utilix.item.ItemPhaseCard PHASE_CARD =
             new com.ae2utilix.ae2_utilix.item.ItemPhaseCard();
-
-    /** Creative tab holding every item this mod adds. */
-    public static final CreativeTabs AE2_UTILIX_TAB = new CreativeTabs(MODID) {
-        @Override
-        public ItemStack createIcon() {
-            return ItemStack.EMPTY;
-        }
-    };
 
     @SidedProxy(modId = Reference.MOD_ID,
             clientSide = "com.ae2utilix.ae2_utilix.proxy.ClientProxy",

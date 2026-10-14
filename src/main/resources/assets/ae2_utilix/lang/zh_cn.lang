@@ -40,3 +40,4 @@ ae2_utilix.gui.shift_left_click_clear=Shift+左键清空
 ae2_utilix.gui.empty=空
 item.ae2_utilix.parallel_card.name=并行卡
 item.ae2_utilix.parallel_card.tooltip.1=增加设备工作的并行数量。
+itemGroup.ae2_utilix=AE2实用器械
