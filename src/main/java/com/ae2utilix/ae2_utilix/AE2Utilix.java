@@ -36,9 +36,9 @@ public class AE2Utilix {
     public static final String UPGRADE_PRODUCT_RETURN = "ae2utilix:product_return_card";
     public static final String UPGRADE_PHASE_CARD = "ae2utilix:phase_card";
 
-    /** Phase interface block; only constructed when the feature is enabled. */
-    public static final com.ae2utilix.ae2_utilix.block.BlockPhaseInterface BLOCK_PHASE_INTERFACE =
-            new com.ae2utilix.ae2_utilix.block.BlockPhaseInterface();
+    /** Phase pattern provider block; only constructed when the feature is enabled. */
+    public static final com.ae2utilix.ae2_utilix.block.BlockPhasedPatternProvider BLOCK_PHASE_PATTERN_PROVIDER =
+            new com.ae2utilix.ae2_utilix.block.BlockPhasedPatternProvider();
 
     /** Crystal growth chamber block. */
     public static final com.ae2utilix.ae2_utilix.block.BlockCrystalGrowthChamber BLOCK_CRYSTAL_GROWTH_CHAMBER =

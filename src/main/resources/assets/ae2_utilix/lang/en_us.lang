@@ -26,7 +26,8 @@ item.ae2_utilix.matter_decomposer.mode_label=Mode:
 item.ae2_utilix.matter_decomposer.mode.annihilation=Matter Dissolver Mode
 item.ae2_utilix.matter_decomposer.mode.brittle=Brittle Material Analysis Mode
 item.ae2_utilix.matter_decomposer.mode.regular=Regular Material Processing Mode
-tile.ae2_utilix.phase_interface.name=Phase ME Interfacetile.ae2_utilix.crystal_growth_chamber.name=Crystal Growth Chamber
+tile.ae2_utilix.phased_pattern_provider.name=Phased Pattern Provider
+tile.ae2_utilix.crystal_growth_chamber.name=Crystal Growth Chamber
 ae2_utilix.gui.eject.on=Auto Eject: On
 ae2_utilix.gui.eject.off=Auto Eject: Off
 ae2_utilix.gui.face.up=Top

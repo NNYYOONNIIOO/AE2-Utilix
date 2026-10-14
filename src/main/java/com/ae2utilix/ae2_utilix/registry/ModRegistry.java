@@ -28,8 +28,9 @@ public final class ModRegistry {
             registerItem(AE2Utilix.PHASE_CARD);
         }
         if (AE2UtilixConfig.registerPhaseInterface) {
-            registerBlock(AE2Utilix.BLOCK_PHASE_INTERFACE, "phase_interface");
-            registerTile("phase_interface", com.ae2utilix.ae2_utilix.block.TilePhaseInterface.class);
+            registerBlock(AE2Utilix.BLOCK_PHASE_PATTERN_PROVIDER, "phased_pattern_provider");
+            registerTile("phased_pattern_provider",
+                    com.ae2utilix.ae2_utilix.block.TilePhasedPatternProvider.class);
         }
         if (AE2UtilixConfig.registerCouplingStaff) {
             registerItem(AE2Utilix.COUPLING_STAFF);

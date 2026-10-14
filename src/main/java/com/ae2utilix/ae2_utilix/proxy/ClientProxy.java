@@ -80,10 +80,10 @@ public class ClientProxy extends CommonProxy {
             }
         }
         if (AE2UtilixConfig.registerPhaseInterface) {
-            Item item = Item.getItemFromBlock(AE2Utilix.BLOCK_PHASE_INTERFACE);
+            Item item = Item.getItemFromBlock(AE2Utilix.BLOCK_PHASE_PATTERN_PROVIDER);
             if (item != null) {
                 ModelLoader.setCustomModelResourceLocation(item, 0,
-                        new ModelResourceLocation(AE2Utilix.MODID + ":phase_interface", "inventory"));
+                        new ModelResourceLocation(AE2Utilix.MODID + ":phased_pattern_provider", "inventory"));
             }
         }
     }

@@ -94,6 +94,11 @@ tasks.matching { it.name == 'genIntellijRuns' }.configureEach {
 }
 
 dependencies {
+    // Mixin runtime is provided by Cleanroom itself; only the annotations and the
+    // annotation processor are needed at compile time.
+    compileOnly 'com.cleanroommc:sponge-mixin:0.20.12+mixin.0.8.7'
+    annotationProcessor 'com.cleanroommc:cleanmix:0.7.2'
+
     if (use_asset_mover.toBoolean()) {
         implementation "com.cleanroommc:assetmover:${asset_mover_version}"
     }
@@ -199,6 +204,7 @@ jar {
             if (use_access_transformer.toBoolean()) {
                 attribute_map['FMLAT'] = access_transformer_locations
             }
+            attribute_map['MixinConfigs'] = 'mixins.ae2_utilix.json'
             attributes(attribute_map)
         }
     }
