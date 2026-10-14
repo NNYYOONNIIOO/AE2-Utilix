@@ -87,7 +87,12 @@ Supergiant 依赖：`libs\AppliedEnergistics2-Supergiant-1.0.16.jar`
 - [ ] 2.4 相位 ME 接口
       - `block/BlockPhaseInterface.java`、`TilePhaseInterface.java`、`IPhaseLinkHost.java`
       - `item/ItemPhaseCard.java`
-- [ ] 2.5 晶体培育仓
+- [x] 2.5 晶体培育仓 ← 已完成并编译通过（2026-10-14）
+      - `block/BlockCrystalGrowthChamber.java`、`block/TileCrystalGrowthChamber.java`
+      - `recipe/CrystalGrowthRecipe.java`、`recipe/CrystalGrowthRecipes.java`
+      - `gui/GuiCrystalGrowthChamber.java`、`gui/ContainerCrystalGrowthChamber.java`
+      - `client/RenderCrystalGrowthChamber.java`、`network/PacketToggleCGCButton.java`
+      - 从源仓库移除：并行卡（不在用户迁移列表内），CGC 只支持 AE2 原版超频卡。
       - `block/BlockCrystalGrowthChamber.java`、`TileCrystalGrowthChamber.java`
       - `recipe/CrystalGrowthRecipe.java`、`recipe/CrystalGrowthRecipes.java`
       - `integration/crt/CrystalGrowthChamberHandler.java`（CraftTweaker，可选）
