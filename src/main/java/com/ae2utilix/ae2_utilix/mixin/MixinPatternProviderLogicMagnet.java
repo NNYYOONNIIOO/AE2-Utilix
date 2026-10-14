@@ -69,10 +69,12 @@ public abstract class MixinPatternProviderLogicMagnet {
         }
         var upgrades = ((PatternProviderLogic) (Object) this).getUpgrades();
         boolean hasMagnet = MachineMagnetHandler.hasMagnetCard(upgrades);
-        boolean hasReturnCard = com.ae2utilix.ae2_utilix.integration.ProductReturnTracker
-                .hasReturnCard(upgrades);
-        if (hasMagnet || hasReturnCard) {
-            // Either upgrade needs periodic work, so the machine must not sleep.
+        // The product return card only needs to tick while it is still waiting for
+        // outputs. Once everything has been collected the machine may sleep again, and
+        // the next successful pattern push wakes it back up.
+        boolean needsPolling = ((AE2UtilixReturnTrackerHook) (Object) this).ae2utilix$tracker()
+                .isWaiting();
+        if (hasMagnet || needsPolling) {
             cir.setReturnValue(new TickingRequest(original.minTickRate(), original.maxTickRate(), false));
         }
     }
@@ -115,9 +117,14 @@ public abstract class MixinPatternProviderLogicMagnet {
         Object self = this;
         if (!(this.host.getTileEntity() instanceof com.ae2utilix.ae2_utilix.block.TilePhasedPatternProvider)
                 && self instanceof AE2UtilixReturnTrackerHook hook) {
-            // Polling still has work to do, so the machine must keep ticking.
-            if (cir.getReturnValue() == TickRateModulation.SLEEP) {
-                cir.setReturnValue(TickRateModulation.SLOWER);
+            // Only keep the machine awake while outputs are still outstanding; once the
+            // tracker is empty it is allowed to sleep again.
+            if (hook.ae2utilix$tracker().isWaiting()) {
+                if (cir.getReturnValue() == TickRateModulation.SLEEP) {
+                    cir.setReturnValue(TickRateModulation.SLOWER);
+                }
+            } else {
+                return;
             }
             net.minecraft.item.ItemStack card = new net.minecraft.item.ItemStack(
                     com.ae2utilix.ae2_utilix.AE2Utilix.PRODUCT_RETURN_CARD);

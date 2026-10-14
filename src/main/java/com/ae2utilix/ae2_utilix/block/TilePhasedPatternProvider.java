@@ -37,6 +37,9 @@ public class TilePhasedPatternProvider extends TilePatternProvider implements IP
     public void rememberExpectedOutputs(ae2.api.crafting.IPatternDetails pattern) {
         this.ae2utilix$returnTracker.remember(pattern);
         this.saveChanges();
+        // A sleeping machine does not tick, so the new expectation has to wake it. It
+        // goes back to sleep once the tracker has nothing left to poll.
+        this.getMainNode().ifPresent((grid, node) -> grid.getTickManager().wakeDevice(node));
     }
 
     /** @return true when the installed upgrades include an active product return card. */
@@ -87,6 +90,11 @@ public class TilePhasedPatternProvider extends TilePatternProvider implements IP
      * retry logic lives in the shared tracker, so AE2 pattern providers behave the same.
      */
     private void ae2utilix$tickProductReturn(ae2.api.networking.IGridNode node) {
+        // Nothing outstanding means nothing to poll. Staying idle lets the provider sleep
+        // again, and the next successful pattern push wakes it up.
+        if (!this.ae2utilix$returnTracker.isWaiting()) {
+            return;
+        }
         net.minecraft.item.ItemStack card = new net.minecraft.item.ItemStack(
                 com.ae2utilix.ae2_utilix.AE2Utilix.PRODUCT_RETURN_CARD);
         if (this.ae2utilix$returnTracker.tick(node, card, this.getWorld(), ae2utilix$returnTargetPos())) {

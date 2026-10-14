@@ -32,6 +32,10 @@ public abstract class MixinPatternProviderLogic implements AE2UtilixReturnTracke
     @Final
     private PatternProviderLogicHost host;
 
+    @Shadow(remap = false)
+    @Final
+    private ae2.api.networking.IManagedGridNode mainNode;
+
     /** Tracks pushed pattern outputs for AE2's own providers (block and part forms). */
     @Unique
     private final com.ae2utilix.ae2_utilix.integration.ProductReturnTracker ae2utilix$returnTracker =
@@ -160,6 +164,10 @@ public abstract class MixinPatternProviderLogic implements AE2UtilixReturnTracke
             return;
         }
         ((AE2UtilixReturnTrackerHook) (Object) this).ae2utilix$tracker().remember(pattern);
+        // A sleeping machine does not tick, so remembering new expected outputs has to
+        // wake it. It will fall asleep again once the tracker is empty.
+        this.host.saveChanges();
+        this.mainNode.ifPresent((grid, node) -> grid.getTickManager().wakeDevice(node));
     }
 
     @Redirect(

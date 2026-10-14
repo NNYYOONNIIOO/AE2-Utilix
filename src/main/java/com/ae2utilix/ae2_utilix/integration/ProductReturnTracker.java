@@ -123,6 +123,17 @@ public final class ProductReturnTracker {
         return this.expected.isEmpty();
     }
 
+    /**
+     * True while outputs are still outstanding.
+     *
+     * <p>The owner uses this to decide whether it has to stay awake: once every expected
+     * output has been collected the tracker has nothing to poll, so the machine may sleep
+     * and only the next pattern push needs to wake it again.</p>
+     */
+    public boolean isWaiting() {
+        return !this.expected.isEmpty();
+    }
+
     private static boolean hasCard(ItemStack card) {
         return !card.isEmpty() && card.getItem() instanceof ItemProductReturnCard;
     }
