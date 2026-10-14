@@ -68,7 +68,11 @@ public abstract class MixinPatternProviderLogicMagnet {
             return;
         }
         var upgrades = ((PatternProviderLogic) (Object) this).getUpgrades();
-        if (MachineMagnetHandler.hasMagnetCard(upgrades)) {
+        boolean hasMagnet = MachineMagnetHandler.hasMagnetCard(upgrades);
+        boolean hasReturnCard = com.ae2utilix.ae2_utilix.integration.ProductReturnTracker
+                .hasReturnCard(upgrades);
+        if (hasMagnet || hasReturnCard) {
+            // Either upgrade needs periodic work, so the machine must not sleep.
             cir.setReturnValue(new TickingRequest(original.minTickRate(), original.maxTickRate(), false));
         }
     }
@@ -94,20 +98,42 @@ public abstract class MixinPatternProviderLogicMagnet {
             }
         }
 
-        if (!hasMagnet) {
-            return;
+        if (hasMagnet) {
+            // The provider sleeps without work, so keep it awake while the magnet is
+            // installed, and run the pickup scan on a five tick cadence.
+            if (cir.getReturnValue() == TickRateModulation.SLEEP) {
+                cir.setReturnValue(TickRateModulation.SLOWER);
+            }
+            if (++this.ae2utilix$magnetTicker >= MachineMagnetHandler.SCAN_INTERVAL) {
+                this.ae2utilix$magnetTicker = 0;
+                MachineMagnetHandler.doMagnetWork(node);
+            }
         }
 
-        // The provider sleeps without work, so keep it awake while the magnet is installed.
-        if (cir.getReturnValue() == TickRateModulation.SLEEP) {
-            cir.setReturnValue(TickRateModulation.SLOWER);
+        // The product return card polls the machine for the outputs of pushed patterns.
+        // This runs for AE2 own providers; the phase provider drives its own tracker.
+        Object self = this;
+        if (!(this.host.getTileEntity() instanceof com.ae2utilix.ae2_utilix.block.TilePhasedPatternProvider)
+                && self instanceof AE2UtilixReturnTrackerHook hook) {
+            // Polling still has work to do, so the machine must keep ticking.
+            if (cir.getReturnValue() == TickRateModulation.SLEEP) {
+                cir.setReturnValue(TickRateModulation.SLOWER);
+            }
+            net.minecraft.item.ItemStack card = new net.minecraft.item.ItemStack(
+                    com.ae2utilix.ae2_utilix.AE2Utilix.PRODUCT_RETURN_CARD);
+            java.util.List<net.minecraft.util.EnumFacing> targets =
+                    new java.util.ArrayList<>(this.host.getTargets());
+            for (net.minecraft.util.EnumFacing side : targets) {
+                if (side == null) {
+                    continue;
+                }
+                net.minecraft.util.math.BlockPos targetPos = this.host.getTileEntity().getPos().offset(side);
+                if (hook.ae2utilix$tracker().tick(node, card, this.host.getTileEntity().getWorld(),
+                        targetPos)) {
+                    ((PatternProviderLogic) (Object) this).saveChanges();
+                    break;
+                }
+            }
         }
-
-        if (++this.ae2utilix$magnetTicker < MachineMagnetHandler.SCAN_INTERVAL) {
-            return;
-        }
-        this.ae2utilix$magnetTicker = 0;
-
-        MachineMagnetHandler.doMagnetWork(node);
     }
 }

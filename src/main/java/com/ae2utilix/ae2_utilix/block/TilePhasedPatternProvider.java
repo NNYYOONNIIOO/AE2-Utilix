@@ -21,50 +21,21 @@ public class TilePhasedPatternProvider extends TilePatternProvider implements IP
 
     private static final double MAGNET_IDLE_POWER_MULTIPLIER = 10.0;
 
-    /** Outputs the pushed patterns are expected to leave in the target block. */
-    private final java.util.List<net.minecraft.item.ItemStack> ae2utilix$expectedResults =
-            new java.util.ArrayList<>();
-    /** Increasing retry delay so an empty machine is not polled every tick. */
-    private int ae2utilix$returnTicker;
-    private int ae2utilix$returnDelay = 1;
+    /** Tracks pushed pattern outputs and polls the machine for them. */
+    private final com.ae2utilix.ae2_utilix.integration.ProductReturnTracker ae2utilix$returnTracker =
+            new com.ae2utilix.ae2_utilix.integration.ProductReturnTracker();
+
 
     private int ae2utilix$scanTicker;
     private boolean ae2utilix$lastMagnetState;
     private double ae2utilix$baseIdlePower = -1.0;
 
     /**
-     * The stock provider sleeps when it has nothing to push, so upgrades that need
-     * periodic work run their own five tick scan from the tile entity itself.
-     */
-    /**
      * Records the outputs a just-pushed pattern should leave behind, so the product
      * return card knows what to look for in the target block.
      */
     public void rememberExpectedOutputs(ae2.api.crafting.IPatternDetails pattern) {
-        if (pattern == null) {
-            return;
-        }
-        for (ae2.api.stacks.GenericStack output : pattern.getOutputs()) {
-            if (output == null || !(output.what() instanceof ae2.api.stacks.AEItemKey itemKey)) {
-                continue;
-            }
-            net.minecraft.item.ItemStack stack = itemKey.toStack();
-            boolean merged = false;
-            for (net.minecraft.item.ItemStack existing : this.ae2utilix$expectedResults) {
-                if (net.minecraft.item.ItemStack.areItemsEqual(existing, stack)
-                        && net.minecraft.item.ItemStack.areItemStackTagsEqual(existing, stack)) {
-                    existing.grow((int) Math.min(Integer.MAX_VALUE - existing.getCount(), output.amount()));
-                    merged = true;
-                    break;
-                }
-            }
-            if (!merged) {
-                stack.setCount((int) Math.min(Integer.MAX_VALUE, Math.max(1, output.amount())));
-                this.ae2utilix$expectedResults.add(stack);
-            }
-        }
-        this.ae2utilix$returnTicker = 0;
-        this.ae2utilix$returnDelay = 1;
+        this.ae2utilix$returnTracker.remember(pattern);
         this.saveChanges();
     }
 
@@ -112,47 +83,14 @@ public class TilePhasedPatternProvider extends TilePatternProvider implements IP
     }
 
     /**
-     * Polls the push target for products the product return card expects, backing off
-     * gradually while the machine has not finished crafting.
+     * Polls the push target for products the product return card expects. The polling and
+     * retry logic lives in the shared tracker, so AE2 pattern providers behave the same.
      */
     private void ae2utilix$tickProductReturn(ae2.api.networking.IGridNode node) {
-        if (!this.ae2utilix$hasReturnCard()) {
-            // Without the card the tracked outputs are meaningless, so drop them.
-            this.ae2utilix$expectedResults.clear();
-            return;
-        }
-        if (this.ae2utilix$expectedResults.isEmpty()) {
-            return;
-        }
-        if (++this.ae2utilix$returnTicker < this.ae2utilix$returnDelay) {
-            return;
-        }
-        this.ae2utilix$returnTicker = 0;
-
-        net.minecraft.util.math.BlockPos targetPos = ae2utilix$returnTargetPos();
-        if (targetPos == null) {
-            return;
-        }
-
-        java.util.List<net.minecraft.util.EnumFacing> faces = ae2utilix$returnFaces();
         net.minecraft.item.ItemStack card = new net.minecraft.item.ItemStack(
                 com.ae2utilix.ae2_utilix.AE2Utilix.PRODUCT_RETURN_CARD);
-        net.minecraft.world.World level = this.getWorld();
-
-        boolean didWork = false;
-        for (net.minecraft.item.ItemStack expected : this.ae2utilix$expectedResults) {
-            if (com.ae2utilix.ae2_utilix.integration.ProductReturnHandler.returnProduct(
-                    node, card, expected, level, targetPos, faces)) {
-                didWork = true;
-                break;
-            }
-        }
-
-        if (didWork) {
-            this.ae2utilix$returnDelay = 1;
-        } else {
-            this.ae2utilix$returnDelay = Math.min(20,
-                    Math.max(1, (int) (this.ae2utilix$returnDelay * 1.15f)));
+        if (this.ae2utilix$returnTracker.tick(node, card, this.getWorld(), ae2utilix$returnTargetPos())) {
+            this.saveChanges();
         }
     }
 

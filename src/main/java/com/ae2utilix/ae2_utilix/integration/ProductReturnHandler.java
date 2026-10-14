@@ -24,14 +24,14 @@ import java.util.List;
 /**
  * Pulls finished products back into the network for the product return card.
  *
- * <p>The card is installed in the pattern provider that pushed the crafting inputs. Once a
- * pattern has been pushed, this class periodically looks at the block the provider points at
- * and moves stacks that match the expected outputs into the ME network.</p>
+ * <p>Once a pattern has been pushed, the owner periodically looks at the block its provider
+ * points at and moves stacks matching the expected pattern outputs into the ME network.</p>
  *
- * <p>Several faces are tried in order. A single position is not always enough: a vanilla
- * furnace, for example, only exposes its input slot through the top face and its output slot
- * through the bottom face. Only stacks matching the expected pattern outputs are ever
- * extracted, so trying extra faces cannot pull unrelated contents such as furnace fuel.</p>
+ * <p>Every side of the target is probed. The product return card is deliberately independent
+ * of the phase card: the phase card only chooses which side receives the crafted inputs,
+ * while locating the machine's output slot is the return card's own job. A machine may only
+ * expose that slot on one side (a vanilla furnace only offers products through its bottom
+ * face), so all six sides are tried.</p>
  */
 public final class ProductReturnHandler {
 
@@ -39,38 +39,35 @@ public final class ProductReturnHandler {
     }
 
     /**
-     * Extracts one matching stack from the target block into the network.
+     * Moves one matching stack from the target block into the network.
      *
-     * @param gridNode   the provider's grid node, used for network storage and power
-     * @param card       the installed product return card
-     * @param expected   an item the pushed pattern is expected to produce
-     * @param level      the world the provider lives in
-     * @param targetPos  the block to pull products from
-     * @param faces      candidate capability faces, in the order they should be tried
-     * @return true when something was moved into the network
+     * @param gridNode  the provider's grid node, used for network storage and power
+     * @param card      the installed product return card
+     * @param expected  an item the pushed pattern is expected to produce
+     * @param level     the world the provider lives in
+     * @param targetPos the block to pull products from
+     * @param faces     capability faces to probe, in the order they should be tried
+     * @return the number of items moved into the network, 0 when nothing was taken
      */
-    public static boolean returnProduct(IGridNode gridNode, ItemStack card, ItemStack expected,
-                                        World level, BlockPos targetPos, List<EnumFacing> faces) {
+    public static long returnProduct(IGridNode gridNode, ItemStack card, ItemStack expected,
+                                     World level, BlockPos targetPos, List<EnumFacing> faces) {
         if (gridNode == null || expected.isEmpty() || level == null || targetPos == null) {
-            return false;
+            return 0;
         }
         if (card.isEmpty() || !(card.getItem() instanceof ItemProductReturnCard)) {
-            return false;
+            return 0;
         }
         var grid = gridNode.grid();
         if (grid == null) {
-            return false;
+            return 0;
         }
-        if (level.isRemote) {
-            return false;
-        }
-        if (!level.isBlockLoaded(targetPos)) {
-            return false;
+        if (level.isRemote || !level.isBlockLoaded(targetPos)) {
+            return 0;
         }
 
         TileEntity target = level.getTileEntity(targetPos);
         if (target == null) {
-            return false;
+            return 0;
         }
 
         MEStorage storage = grid.getStorageService().getInventory();
@@ -83,15 +80,25 @@ public final class ProductReturnHandler {
             if (handler == null) {
                 continue;
             }
-            if (extractOne(handler, expected, storage, grid, source)) {
-                return true;
+            long moved = extractOne(handler, expected, storage, grid, source);
+            if (moved > 0) {
+                return moved;
             }
         }
-        return false;
+        return 0;
     }
 
-    private static boolean extractOne(IItemHandler handler, ItemStack expected, MEStorage storage,
-                                      ae2.api.networking.IGrid grid, IActionSource source) {
+    /**
+     * Extracts a matching stack through one handler.
+     *
+     * <p>Two independent guards keep unrelated contents safe. The capability already
+     * restricts which slots this face exposes and whether the machine allows extraction at
+     * all (a vanilla furnace reports its fuel and input slots as non-extractable), and the
+     * item comparison below only ever accepts stacks that match the expected pattern
+     * output.</p>
+     */
+    private static long extractOne(IItemHandler handler, ItemStack expected, MEStorage storage,
+                                   ae2.api.networking.IGrid grid, IActionSource source) {
         for (int slot = 0; slot < handler.getSlots(); slot++) {
             ItemStack stack = handler.getStackInSlot(slot);
             if (stack.isEmpty() || !matches(stack, expected)) {
@@ -112,10 +119,10 @@ public final class ProductReturnHandler {
             }
             ItemStack extracted = handler.extractItem(slot, (int) inserted, false);
             if (!extracted.isEmpty()) {
-                return true;
+                return extracted.getCount();
             }
         }
-        return false;
+        return 0;
     }
 
     private static boolean matches(ItemStack candidate, ItemStack expected) {

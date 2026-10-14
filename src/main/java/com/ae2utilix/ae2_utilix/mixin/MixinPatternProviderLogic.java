@@ -26,11 +26,21 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * valid link keep behaving exactly like the stock one.</p>
  */
 @Mixin(PatternProviderLogic.class)
-public abstract class MixinPatternProviderLogic {
+public abstract class MixinPatternProviderLogic implements AE2UtilixReturnTrackerHook {
 
     @Shadow(remap = false)
     @Final
     private PatternProviderLogicHost host;
+
+    /** Tracks pushed pattern outputs for AE2's own providers (block and part forms). */
+    @Unique
+    private final com.ae2utilix.ae2_utilix.integration.ProductReturnTracker ae2utilix$returnTracker =
+            new com.ae2utilix.ae2_utilix.integration.ProductReturnTracker();
+
+    @Override
+    public com.ae2utilix.ae2_utilix.integration.ProductReturnTracker ae2utilix$tracker() {
+        return this.ae2utilix$returnTracker;
+    }
 
     /** Resolves the linked target, or null when this provider is not phase-linked. */
     @Unique
@@ -134,14 +144,22 @@ public abstract class MixinPatternProviderLogic {
      * the crafting outputs come back into the network. Only the pure item case is handled
      * here; fluid and gas integration are not part of this port.
      */
+    /**
+     * Remembers the outputs a just pushed pattern should leave behind.
+     *
+     * <p>The phase provider keeps its own tracker; every other provider (AE2's block and
+     * part forms) gets one attached here, so the product return card works on all of
+     * them.</p>
+     */
     @Inject(method = "onPushPatternSuccess", at = @At("TAIL"), remap = false, require = 0)
     private void ae2utilix$rememberExpectedOutputs(ae2.api.crafting.IPatternDetails pattern,
                                                    CallbackInfo ci) {
         TileEntity tile = this.host.getTileEntity();
-        if (!(tile instanceof com.ae2utilix.ae2_utilix.block.TilePhasedPatternProvider phased)) {
+        if (tile instanceof com.ae2utilix.ae2_utilix.block.TilePhasedPatternProvider phased) {
+            phased.rememberExpectedOutputs(pattern);
             return;
         }
-        phased.rememberExpectedOutputs(pattern);
+        ((AE2UtilixReturnTrackerHook) (Object) this).ae2utilix$tracker().remember(pattern);
     }
 
     @Redirect(
