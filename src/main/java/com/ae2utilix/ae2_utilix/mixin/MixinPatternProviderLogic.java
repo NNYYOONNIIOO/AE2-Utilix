@@ -26,7 +26,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * valid link keep behaving exactly like the stock one.</p>
  */
 @Mixin(PatternProviderLogic.class)
-public abstract class MixinPatternProviderLogic implements AE2UtilixReturnTrackerHook {
+public abstract class MixinPatternProviderLogic implements com.ae2utilix.ae2_utilix.integration.AE2UtilixReturnTrackerHook {
 
     @Shadow(remap = false)
     @Final
@@ -163,7 +163,7 @@ public abstract class MixinPatternProviderLogic implements AE2UtilixReturnTracke
             phased.rememberExpectedOutputs(pattern);
             return;
         }
-        ((AE2UtilixReturnTrackerHook) (Object) this).ae2utilix$tracker().remember(pattern);
+        ((com.ae2utilix.ae2_utilix.integration.AE2UtilixReturnTrackerHook) (Object) this).ae2utilix$tracker().remember(pattern);
         // A sleeping machine does not tick, so remembering new expected outputs has to
         // wake it. It will fall asleep again once the tracker is empty.
         this.host.saveChanges();

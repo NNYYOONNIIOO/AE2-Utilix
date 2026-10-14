@@ -72,7 +72,7 @@ public abstract class MixinPatternProviderLogicMagnet {
         // The product return card only needs to tick while it is still waiting for
         // outputs. Once everything has been collected the machine may sleep again, and
         // the next successful pattern push wakes it back up.
-        boolean needsPolling = ((AE2UtilixReturnTrackerHook) (Object) this).ae2utilix$tracker()
+        boolean needsPolling = ((com.ae2utilix.ae2_utilix.integration.AE2UtilixReturnTrackerHook) (Object) this).ae2utilix$tracker()
                 .isWaiting();
         if (hasMagnet || needsPolling) {
             cir.setReturnValue(new TickingRequest(original.minTickRate(), original.maxTickRate(), false));
@@ -116,7 +116,7 @@ public abstract class MixinPatternProviderLogicMagnet {
         // This runs for AE2 own providers; the phase provider drives its own tracker.
         Object self = this;
         if (!(this.host.getTileEntity() instanceof com.ae2utilix.ae2_utilix.block.TilePhasedPatternProvider)
-                && self instanceof AE2UtilixReturnTrackerHook hook) {
+                && self instanceof com.ae2utilix.ae2_utilix.integration.AE2UtilixReturnTrackerHook hook) {
             // Only keep the machine awake while outputs are still outstanding; once the
             // tracker is empty it is allowed to sleep again.
             if (hook.ae2utilix$tracker().isWaiting()) {
