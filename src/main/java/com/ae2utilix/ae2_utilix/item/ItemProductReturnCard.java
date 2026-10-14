@@ -92,29 +92,16 @@ public class ItemProductReturnCard extends UpgradeCardItem implements IAE2Utilix
         return EnumActionResult.PASS;
     }
 
+    /**
+     * Only the mod specific description is added here. The shared "supported by" machine
+     * list is produced by AE2's own upgrade card tooltip, which already honours the Shift
+     * expansion and the grouped machine names.
+     */
     @SideOnly(Side.CLIENT)
     @Override
-    protected void addCheckedInformation(ItemStack stack, @Nullable World worldIn, List<String> tooltip, ITooltipFlag flagIn) {
+    protected void addCheckedInformation(ItemStack stack, @Nullable World worldIn, List<String> tooltip,
+                                         ITooltipFlag flagIn) {
+        super.addCheckedInformation(stack, worldIn, tooltip, flagIn);
         tooltip.add(I18n.format("item.ae2_utilix.product_return_card.tooltip.1"));
-        addSupportedTooltip(getUpgradeTypeId(), tooltip);
-    }
-
-    @SideOnly(Side.CLIENT)
-    public static void addSupportedTooltip(String upgradeTypeId, List<String> tooltip) {
-        Map<ItemStack, Integer> supported = ModUpgradeRegistry.getSupported(upgradeTypeId);
-        if (supported.isEmpty()) return;
-        tooltip.add("");
-        List<String> names = new ArrayList<>();
-        for (Map.Entry<ItemStack, Integer> entry : supported.entrySet()) {
-            String name = entry.getKey().getDisplayName();
-            int limit = entry.getValue();
-            if (limit > 1) {
-                name = name + " (" + limit + ')';
-            }
-            if (!names.contains(name)) {
-                names.add(name);
-            }
-        }
-        tooltip.addAll(names);
     }
 }

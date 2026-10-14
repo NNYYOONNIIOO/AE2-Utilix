@@ -161,9 +161,15 @@ public class ItemPhaseCard extends UpgradeCardItem implements com.ae2utilix.ae2_
         return null;
     }
 
+    /**
+     * Only the marked direction is described here; AE2's own upgrade card tooltip adds the
+     * shared "supported by" machine list with its Shift expansion.
+     */
     @SideOnly(Side.CLIENT)
     @Override
-    protected void addCheckedInformation(ItemStack stack, @Nullable World worldIn, List<String> tooltip, ITooltipFlag flagIn) {
+    protected void addCheckedInformation(ItemStack stack, @Nullable World worldIn, List<String> tooltip,
+                                         ITooltipFlag flagIn) {
+        super.addCheckedInformation(stack, worldIn, tooltip, flagIn);
         EnumFacing face = getFace(stack);
         if (face != null) {
             tooltip.add(I18n.format("item.ae2_utilix.phase_card.tooltip.1",
@@ -171,6 +177,5 @@ public class ItemPhaseCard extends UpgradeCardItem implements com.ae2utilix.ae2_
         } else {
             tooltip.add(I18n.format("item.ae2_utilix.phase_card.tooltip.2"));
         }
-        ItemProductReturnCard.addSupportedTooltip(getUpgradeTypeId(), tooltip);
     }
 }

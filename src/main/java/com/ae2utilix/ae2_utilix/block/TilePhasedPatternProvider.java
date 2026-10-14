@@ -129,18 +129,20 @@ public class TilePhasedPatternProvider extends TilePatternProvider implements IP
         }
         this.ae2utilix$returnTicker = 0;
 
-        net.minecraft.util.math.BlockPos targetPos = this.hasLinkData() && this.isLinkValid()
-                ? this.getLinkPos() : null;
+        net.minecraft.util.math.BlockPos targetPos = ae2utilix$returnTargetPos();
         if (targetPos == null) {
             return;
         }
 
+        java.util.List<net.minecraft.util.EnumFacing> faces = ae2utilix$returnFaces();
+        net.minecraft.item.ItemStack card = new net.minecraft.item.ItemStack(
+                com.ae2utilix.ae2_utilix.AE2Utilix.PRODUCT_RETURN_CARD);
+        net.minecraft.world.World level = this.getWorld();
+
         boolean didWork = false;
         for (net.minecraft.item.ItemStack expected : this.ae2utilix$expectedResults) {
             if (com.ae2utilix.ae2_utilix.integration.ProductReturnHandler.returnProduct(
-                    node, this, new net.minecraft.item.ItemStack(
-                            com.ae2utilix.ae2_utilix.AE2Utilix.PRODUCT_RETURN_CARD),
-                    expected, targetPos, this.getLinkFace())) {
+                    node, card, expected, level, targetPos, faces)) {
                 didWork = true;
                 break;
             }
@@ -154,6 +156,85 @@ public class TilePhasedPatternProvider extends TilePatternProvider implements IP
         }
     }
 
+
+    /**
+     * Where products are expected to appear: the coupled block when one is linked,
+     * otherwise the block the provider is pushing into.
+     */
+    @Nullable
+    private net.minecraft.util.math.BlockPos ae2utilix$returnTargetPos() {
+        if (this.hasLinkData() && this.isLinkValid()) {
+            return this.getLinkPos();
+        }
+        // Fall back to the first active push target so a provider that is simply
+        // adjacent to its machine still returns products.
+        for (net.minecraft.util.EnumFacing side : this.getTargets()) {
+            if (side != null) {
+                return this.getPos().offset(side);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Capability faces to try, most specific first.
+     *
+     * <p>A marked phase card, or a coupling staff link, contributes the preferred face.
+     * Every other side follows, because a machine may only expose its output slot on a
+     * single side (a vanilla furnace, for instance, only offers products on its bottom).
+     * The extractor only ever removes stacks that match the pattern outputs, so the
+     * additional faces cannot pull fuel or inputs.</p>
+     */
+    private java.util.List<net.minecraft.util.EnumFacing> ae2utilix$returnFaces() {
+        java.util.List<net.minecraft.util.EnumFacing> faces = new java.util.ArrayList<>();
+        net.minecraft.util.EnumFacing preferred = ae2utilix$preferredFace();
+        if (preferred != null) {
+            faces.add(preferred);
+        }
+        for (net.minecraft.util.EnumFacing side : net.minecraft.util.EnumFacing.values()) {
+            if (!faces.contains(side)) {
+                faces.add(side);
+            }
+        }
+        return faces;
+    }
+
+    /**
+     * Face selected by a phase card or by the coupling staff, if either is present.
+     */
+    @Nullable
+    private net.minecraft.util.EnumFacing ae2utilix$preferredFace() {
+        net.minecraft.util.EnumFacing marked = phaseCardFace(this.getUpgrades());
+        if (marked != null) {
+            return marked;
+        }
+        return this.hasLinkData() ? this.getLinkFace() : null;
+    }
+
+    /**
+     * Face marked on an installed phase card, or null when none is marked.
+     *
+     * <p>Shared with the push-target mixin, so pushing inputs and collecting products
+     * always agree on which side of the machine this provider talks to.</p>
+     */
+    @Nullable
+    public static net.minecraft.util.EnumFacing phaseCardFace(ae2.api.upgrades.IUpgradeInventory upgrades) {
+        if (upgrades == null) {
+            return null;
+        }
+        for (int i = 0; i < upgrades.size(); i++) {
+            net.minecraft.item.ItemStack stack = upgrades.getStackInSlot(i);
+            if (!stack.isEmpty() && stack.getItem()
+                    instanceof com.ae2utilix.ae2_utilix.item.ItemPhaseCard) {
+                net.minecraft.util.EnumFacing marked =
+                        com.ae2utilix.ae2_utilix.item.ItemPhaseCard.getFace(stack);
+                if (marked != null) {
+                    return marked;
+                }
+            }
+        }
+        return null;
+    }
 
     private static final String NBT_LINK_DIM = "ae2utilix_link_dim";
     private static final String NBT_LINK_X = "ae2utilix_link_x";

@@ -1,18 +1,14 @@
 package com.ae2utilix.ae2_utilix.integration;
 
 import ae2.api.config.Actionable;
-import ae2.api.config.FuzzyMode;
-import ae2.api.config.IncludeExclude;
-import ae2.api.networking.IGrid;
 import ae2.api.networking.IGridNode;
 import ae2.api.networking.security.IActionSource;
 import ae2.api.stacks.AEItemKey;
 import ae2.api.storage.MEStorage;
 import ae2.api.storage.StorageHelper;
+import ae2.api.upgrades.IUpgradeInventory;
 import ae2.core.definitions.AEItems;
-import ae2.util.ConfigInventory;
-import ae2.util.prioritylist.IPartitionList;
-import com.ae2utilix.ae2_utilix.AE2Utilix;
+import ae2.me.helpers.MachineSource;
 import net.minecraft.entity.item.EntityItem;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
@@ -20,41 +16,35 @@ import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
 /**
  * Shared magnet behaviour for the ME interface and the pattern provider.
  *
- * <p>While a magnet card sits in the machine's upgrade slots, dropped items within
- * {@link #RANGE} blocks are pulled into the machine's ME network. Which drops are picked up
- * is decided by the card's own pickup filter, honouring the whitelist/blacklist mode and the
- * fuzzy setting stored on the card. The upgrade slot layout is shared with AE2's wireless
- * terminal magnet, which is why the same NBT keys are reused here.</p>
+ * <p>Supergiant's magnet card carries no filter of its own: the pickup configuration lives
+ * on the wireless terminal that happens to hold the card, so a card installed in a machine
+ * has nothing to filter with. This handler therefore picks up everything within
+ * {@link #RANGE} blocks, which is also what the original mod did for machines.</p>
  */
 public final class MachineMagnetHandler {
 
-    /** Radius searched around the machine, matching the original mod's 5 block reach. */
+    /** Radius searched around the machine. */
     public static final double RANGE = 5.0;
 
-    /** One scan every five ticks, matching the original mod. */
+    /** One scan every five ticks. */
     public static final int SCAN_INTERVAL = 5;
-
-    private static final String TAG_PICKUP_CONFIG = "magnet_pickup_config";
-    private static final String TAG_PICKUP_MODE = "magnet_pickup_mode";
-    private static final String TAG_FUZZY = "FuzzyMode";
 
     private MachineMagnetHandler() {
     }
 
     /** True when the given upgrade inventory holds a magnet card. */
-    public static boolean hasMagnetCard(ae2.api.upgrades.IUpgradeInventory upgrades) {
+    public static boolean hasMagnetCard(IUpgradeInventory upgrades) {
         return !findMagnetCard(upgrades).isEmpty();
     }
 
     /** The installed magnet card, or an empty stack. */
-    public static ItemStack findMagnetCard(ae2.api.upgrades.IUpgradeInventory upgrades) {
+    public static ItemStack findMagnetCard(IUpgradeInventory upgrades) {
         if (upgrades == null) {
             return ItemStack.EMPTY;
         }
@@ -68,13 +58,40 @@ public final class MachineMagnetHandler {
     }
 
     /**
-     * Runs one scan, pulling matching drops into the machine's network.
+     * Runs one scan for the machine owning the given node.
+     *
+     * <p>The scan is driven from the node's owner, so the same call works for tile entity
+     * machines and for the cable-mounted parts.</p>
+     */
+    public static boolean doMagnetWork(IGridNode gridNode) {
+        if (gridNode == null) {
+            return false;
+        }
+        Object owner = gridNode.getOwner();
+        IUpgradeInventory upgrades = null;
+        TileEntity host = null;
+        if (owner instanceof ae2.api.upgrades.IUpgradeableObject upgradeable) {
+            upgrades = upgradeable.getUpgrades();
+        }
+        if (owner instanceof TileEntity tile) {
+            host = tile;
+        } else if (owner instanceof ae2.parts.AEBasePart part) {
+            ae2.api.parts.IPartHost partHost = part.getHost();
+            host = partHost == null ? null : partHost.getTileEntity();
+        }
+        if (host == null) {
+            return false;
+        }
+        return doMagnetWork(gridNode, host, upgrades);
+    }
+
+    /**
+     * Runs one scan, pulling nearby drops into the machine's network.
      *
      * @return true when at least one drop was absorbed.
      */
-    public static boolean doMagnetWork(IGridNode gridNode, TileEntity host, ae2.api.upgrades.IUpgradeInventory upgrades) {
-        ItemStack card = findMagnetCard(upgrades);
-        if (card.isEmpty() || gridNode == null || host == null) {
+    public static boolean doMagnetWork(IGridNode gridNode, TileEntity host, IUpgradeInventory upgrades) {
+        if (findMagnetCard(upgrades).isEmpty() || gridNode == null || host == null) {
             return false;
         }
         World world = host.getWorld();
@@ -82,16 +99,15 @@ public final class MachineMagnetHandler {
             return false;
         }
 
-        IGrid grid = gridNode.grid();
+        var grid = gridNode.grid();
         if (grid == null) {
             return false;
         }
         MEStorage storage = grid.getStorageService().getInventory();
         IActionSource source = gridNode.getOwner() instanceof ae2.api.networking.security.IActionHost actionHost
-                ? new ae2.me.helpers.MachineSource(actionHost)
+                ? new MachineSource(actionHost)
                 : ae2.api.networking.security.IActionSource.empty();
 
-        MagnetFilter filter = MagnetFilter.of(card);
         BlockPos pos = host.getPos();
         List<EntityItem> drops = world.getEntitiesWithinAABB(EntityItem.class,
                 new AxisAlignedBB(pos.getX() - RANGE, pos.getY() - RANGE, pos.getZ() - RANGE,
@@ -112,7 +128,7 @@ public final class MachineMagnetHandler {
                 continue;
             }
             AEItemKey key = AEItemKey.of(stack);
-            if (key == null || !filter.matches(key)) {
+            if (key == null) {
                 continue;
             }
 
@@ -130,55 +146,5 @@ public final class MachineMagnetHandler {
             }
         }
         return didWork;
-    }
-
-    /** Pickup filter decoded from a magnet card's NBT. */
-    private static final class MagnetFilter {
-        private final IPartitionList filter;
-        private final IncludeExclude mode;
-
-        private MagnetFilter(IPartitionList filter, IncludeExclude mode) {
-            this.filter = filter;
-            this.mode = mode;
-        }
-
-        private static MagnetFilter of(ItemStack card) {
-            ConfigInventory config = ConfigInventory.configTypes(27)
-                    .supportedType(ae2.api.stacks.AEKeyType.items())
-                    .build();
-            NBTTagCompound tag = card.getTagCompound();
-            if (tag != null) {
-                config.readFromChildTag(tag, TAG_PICKUP_CONFIG);
-            }
-
-            IPartitionList.Builder builder = IPartitionList.builder();
-            builder.fuzzyMode(readFuzzy(tag));
-            for (int i = 0; i < config.size(); i++) {
-                builder.add(config.getKey(i));
-            }
-
-            IncludeExclude mode = tag != null && tag.getBoolean(TAG_PICKUP_MODE)
-                    ? IncludeExclude.WHITELIST
-                    : IncludeExclude.BLACKLIST;
-            return new MagnetFilter(builder.build(), mode);
-        }
-
-        private static FuzzyMode readFuzzy(@Nullable NBTTagCompound tag) {
-            if (tag != null && tag.hasKey(TAG_FUZZY)) {
-                try {
-                    return FuzzyMode.valueOf(tag.getString(TAG_FUZZY));
-                } catch (IllegalArgumentException ignored) {
-                    // Fall through to the default.
-                }
-            }
-            return FuzzyMode.IGNORE_ALL;
-        }
-
-        private boolean matches(AEItemKey key) {
-            if (filter.isEmpty() && mode == IncludeExclude.WHITELIST) {
-                return false;
-            }
-            return filter.matchesFilter(key, mode);
-        }
     }
 }

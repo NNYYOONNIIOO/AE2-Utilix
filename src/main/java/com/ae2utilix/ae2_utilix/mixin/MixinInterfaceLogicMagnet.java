@@ -74,8 +74,7 @@ public abstract class MixinInterfaceLogicMagnet {
         }
         this.ae2utilix$magnetTicker = 0;
 
-        TileEntity tile = this.host.getTileEntity();
-        if (MachineMagnetHandler.doMagnetWork(node, tile, upgrades)
+        if (MachineMagnetHandler.doMagnetWork(node)
                 && cir.getReturnValue() == TickRateModulation.SLEEP) {
             cir.setReturnValue(TickRateModulation.SLOWER);
         }

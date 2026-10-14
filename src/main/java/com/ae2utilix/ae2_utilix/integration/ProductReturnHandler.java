@@ -2,6 +2,7 @@ package com.ae2utilix.ae2_utilix.integration;
 
 import ae2.api.config.Actionable;
 import ae2.api.networking.IGridNode;
+import ae2.api.networking.security.IActionHost;
 import ae2.api.networking.security.IActionSource;
 import ae2.api.stacks.AEItemKey;
 import ae2.api.storage.MEStorage;
@@ -18,13 +19,19 @@ import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.items.IItemHandler;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.List;
+
 /**
  * Pulls finished products back into the network for the product return card.
  *
  * <p>The card is installed in the pattern provider that pushed the crafting inputs. Once a
  * pattern has been pushed, this class periodically looks at the block the provider points at
- * (the face selected with a phase card, or the block linked with the coupling staff) and
- * moves matching stacks into the ME network.</p>
+ * and moves stacks that match the expected outputs into the ME network.</p>
+ *
+ * <p>Several faces are tried in order. A single position is not always enough: a vanilla
+ * furnace, for example, only exposes its input slot through the top face and its output slot
+ * through the bottom face. Only stacks matching the expected pattern outputs are ever
+ * extracted, so trying extra faces cannot pull unrelated contents such as furnace fuel.</p>
  */
 public final class ProductReturnHandler {
 
@@ -34,34 +41,30 @@ public final class ProductReturnHandler {
     /**
      * Extracts one matching stack from the target block into the network.
      *
-     * @param gridNode the provider's grid node, used for network storage and power
-     * @param host     the provider's tile entity
-     * @param card     the installed product return card, used for nothing but presence
-     * @param expected the item that the pushed pattern is expected to produce
+     * @param gridNode   the provider's grid node, used for network storage and power
+     * @param card       the installed product return card
+     * @param expected   an item the pushed pattern is expected to produce
+     * @param level      the world the provider lives in
+     * @param targetPos  the block to pull products from
+     * @param faces      candidate capability faces, in the order they should be tried
      * @return true when something was moved into the network
      */
-    public static boolean returnProduct(IGridNode gridNode, TileEntity host, ItemStack card,
-                                        ItemStack expected, @Nullable BlockPos overrideTarget,
-                                        @Nullable EnumFacing overrideFace) {
-        if (gridNode == null || host == null || expected.isEmpty()) {
+    public static boolean returnProduct(IGridNode gridNode, ItemStack card, ItemStack expected,
+                                        World level, BlockPos targetPos, List<EnumFacing> faces) {
+        if (gridNode == null || expected.isEmpty() || level == null || targetPos == null) {
             return false;
         }
         if (card.isEmpty() || !(card.getItem() instanceof ItemProductReturnCard)) {
-            return false;
-        }
-
-        World level = host.getWorld();
-        if (level == null || level.isRemote) {
             return false;
         }
         var grid = gridNode.grid();
         if (grid == null) {
             return false;
         }
-
-        BlockPos targetPos = overrideTarget;
-        EnumFacing extractFace = overrideFace;
-        if (targetPos == null) {
+        if (level.isRemote) {
+            return false;
+        }
+        if (!level.isBlockLoaded(targetPos)) {
             return false;
         }
 
@@ -70,16 +73,25 @@ public final class ProductReturnHandler {
             return false;
         }
 
-        IItemHandler handler = getItemHandler(target, extractFace);
-        if (handler == null) {
-            return false;
-        }
-
         MEStorage storage = grid.getStorageService().getInventory();
-        IActionSource source = gridNode.getOwner() instanceof ae2.api.networking.security.IActionHost actionHost
+        IActionSource source = gridNode.getOwner() instanceof IActionHost actionHost
                 ? new MachineSource(actionHost)
-                : ae2.api.networking.security.IActionSource.empty();
+                : IActionSource.empty();
 
+        for (EnumFacing face : faces) {
+            IItemHandler handler = getItemHandler(target, face);
+            if (handler == null) {
+                continue;
+            }
+            if (extractOne(handler, expected, storage, grid, source)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean extractOne(IItemHandler handler, ItemStack expected, MEStorage storage,
+                                      ae2.api.networking.IGrid grid, IActionSource source) {
         for (int slot = 0; slot < handler.getSlots(); slot++) {
             ItemStack stack = handler.getStackInSlot(slot);
             if (stack.isEmpty() || !matches(stack, expected)) {

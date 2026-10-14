@@ -51,12 +51,23 @@ public abstract class MixinPatternProviderLogic {
         return link.getLinkPos();
     }
 
-    /** Linked target face, falling back to the original face. */
+    /**
+     * Face the linked block should be addressed on.
+     *
+     * <p>A marked phase card wins over the coupling staff link, matching the original mod:
+     * the card is the explicit "this side of the machine" instruction, while a link only
+     * says which block to talk to.</p>
+     */
     @Unique
     private EnumFacing ae2utilix$linkedFace(EnumFacing fallback) {
         TileEntity tile = this.host.getTileEntity();
         if (!(tile instanceof IPhaseLinkHost)) {
             return fallback;
+        }
+        EnumFacing cardFace = com.ae2utilix.ae2_utilix.block.TilePhasedPatternProvider
+                .phaseCardFace(this.host.getUpgrades());
+        if (cardFace != null) {
+            return cardFace;
         }
         IPhaseLinkHost link = (IPhaseLinkHost) tile;
         if (!link.hasLinkData() || !link.isLinkValid()) {
@@ -75,6 +86,28 @@ public abstract class MixinPatternProviderLogic {
     private BlockPos ae2utilix$redirectCollectTargets(BlockPos pos, EnumFacing direction) {
         BlockPos linked = this.ae2utilix$linkedPos();
         return linked != null ? linked : pos.offset(direction);
+    }
+
+    /**
+     * The direction the provider believes it is pushing towards.
+     *
+     * <p>Without this, AE2 keeps using the block it physically touches (and the face that
+     * points back at the provider) even when a phase card marks a different side. Routing
+     * through the marked face is what lets a marked card place inputs into a specific slot
+     * group, such as a furnace top rather than its fuel side.</p>
+     */
+    @Redirect(
+            method = "collectPushTargets",
+            at = @At(value = "INVOKE",
+                    target = "Lnet/minecraft/util/EnumFacing;getOpposite()Lnet/minecraft/util/EnumFacing;"),
+            remap = false,
+            require = 0)
+    private EnumFacing ae2utilix$redirectAdjacentSide(EnumFacing direction) {
+        BlockPos linked = this.ae2utilix$linkedPos();
+        if (linked == null) {
+            return direction.getOpposite();
+        }
+        return this.ae2utilix$linkedFace(direction.getOpposite());
     }
 
     @Redirect(

@@ -80,7 +80,6 @@ public abstract class MixinPatternProviderLogicMagnet {
         }
         this.ae2utilix$magnetTicker = 0;
 
-        TileEntity tile = this.host.getTileEntity();
-        MachineMagnetHandler.doMagnetWork(node, tile, upgrades);
+        MachineMagnetHandler.doMagnetWork(node);
     }
 }
