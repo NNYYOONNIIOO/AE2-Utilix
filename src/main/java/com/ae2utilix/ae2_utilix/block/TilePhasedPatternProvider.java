@@ -16,7 +16,144 @@ import org.jetbrains.annotations.Nullable;
  * provider. The link data added here is consumed by {@code MixinPatternProviderLogic},
  * which redirects the push target to the linked block and face.</p>
  */
-public class TilePhasedPatternProvider extends TilePatternProvider implements IPhaseLinkHost {
+public class TilePhasedPatternProvider extends TilePatternProvider implements IPhaseLinkHost,
+        ae2.tile.ServerTickingTile {
+
+    private static final double MAGNET_IDLE_POWER_MULTIPLIER = 10.0;
+
+    /** Outputs the pushed patterns are expected to leave in the target block. */
+    private final java.util.List<net.minecraft.item.ItemStack> ae2utilix$expectedResults =
+            new java.util.ArrayList<>();
+    /** Increasing retry delay so an empty machine is not polled every tick. */
+    private int ae2utilix$returnTicker;
+    private int ae2utilix$returnDelay = 1;
+
+    private int ae2utilix$scanTicker;
+    private boolean ae2utilix$lastMagnetState;
+    private double ae2utilix$baseIdlePower = -1.0;
+
+    /**
+     * The stock provider sleeps when it has nothing to push, so upgrades that need
+     * periodic work run their own five tick scan from the tile entity itself.
+     */
+    /**
+     * Records the outputs a just-pushed pattern should leave behind, so the product
+     * return card knows what to look for in the target block.
+     */
+    public void rememberExpectedOutputs(ae2.api.crafting.IPatternDetails pattern) {
+        if (pattern == null) {
+            return;
+        }
+        for (ae2.api.stacks.GenericStack output : pattern.getOutputs()) {
+            if (output == null || !(output.what() instanceof ae2.api.stacks.AEItemKey itemKey)) {
+                continue;
+            }
+            net.minecraft.item.ItemStack stack = itemKey.toStack();
+            boolean merged = false;
+            for (net.minecraft.item.ItemStack existing : this.ae2utilix$expectedResults) {
+                if (net.minecraft.item.ItemStack.areItemsEqual(existing, stack)
+                        && net.minecraft.item.ItemStack.areItemStackTagsEqual(existing, stack)) {
+                    existing.grow((int) Math.min(Integer.MAX_VALUE - existing.getCount(), output.amount()));
+                    merged = true;
+                    break;
+                }
+            }
+            if (!merged) {
+                stack.setCount((int) Math.min(Integer.MAX_VALUE, Math.max(1, output.amount())));
+                this.ae2utilix$expectedResults.add(stack);
+            }
+        }
+        this.ae2utilix$returnTicker = 0;
+        this.ae2utilix$returnDelay = 1;
+        this.saveChanges();
+    }
+
+    /** @return true when the installed upgrades include an active product return card. */
+    private boolean ae2utilix$hasReturnCard() {
+        for (int i = 0; i < this.getUpgrades().size(); i++) {
+            net.minecraft.item.ItemStack stack = this.getUpgrades().getStackInSlot(i);
+            if (!stack.isEmpty() && stack.getItem()
+                    instanceof com.ae2utilix.ae2_utilix.item.ItemProductReturnCard) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public void serverTick() {
+        if (++this.ae2utilix$scanTicker < com.ae2utilix.ae2_utilix.integration.MachineMagnetHandler.SCAN_INTERVAL) {
+            return;
+        }
+        this.ae2utilix$scanTicker = 0;
+
+        ae2.api.networking.IManagedGridNode mainNode = this.getMainNode();
+        ae2.api.networking.IGridNode node = mainNode.getNode();
+        boolean hasMagnet = com.ae2utilix.ae2_utilix.integration.MachineMagnetHandler
+                .hasMagnetCard(this.getUpgrades());
+        // A magnet card multiplies this machine idle draw, matching the original mod.
+        if (hasMagnet != this.ae2utilix$lastMagnetState) {
+            this.ae2utilix$lastMagnetState = hasMagnet;
+            if (node instanceof ae2.me.GridNode gridNode) {
+                if (this.ae2utilix$baseIdlePower < 0.0) {
+                    this.ae2utilix$baseIdlePower = gridNode.getIdlePowerUsage();
+                }
+                gridNode.setIdlePowerUsage(hasMagnet
+                        ? this.ae2utilix$baseIdlePower * MAGNET_IDLE_POWER_MULTIPLIER
+                        : this.ae2utilix$baseIdlePower);
+            }
+        }
+        if (hasMagnet) {
+            com.ae2utilix.ae2_utilix.integration.MachineMagnetHandler.doMagnetWork(
+                    node, this, this.getUpgrades());
+        }
+
+        ae2utilix$tickProductReturn(node);
+    }
+
+    /**
+     * Polls the push target for products the product return card expects, backing off
+     * gradually while the machine has not finished crafting.
+     */
+    private void ae2utilix$tickProductReturn(ae2.api.networking.IGridNode node) {
+        if (!this.ae2utilix$hasReturnCard()) {
+            // Without the card the tracked outputs are meaningless, so drop them.
+            this.ae2utilix$expectedResults.clear();
+            return;
+        }
+        if (this.ae2utilix$expectedResults.isEmpty()) {
+            return;
+        }
+        if (++this.ae2utilix$returnTicker < this.ae2utilix$returnDelay) {
+            return;
+        }
+        this.ae2utilix$returnTicker = 0;
+
+        net.minecraft.util.math.BlockPos targetPos = this.hasLinkData() && this.isLinkValid()
+                ? this.getLinkPos() : null;
+        if (targetPos == null) {
+            return;
+        }
+
+        boolean didWork = false;
+        for (net.minecraft.item.ItemStack expected : this.ae2utilix$expectedResults) {
+            if (com.ae2utilix.ae2_utilix.integration.ProductReturnHandler.returnProduct(
+                    node, this, new net.minecraft.item.ItemStack(
+                            com.ae2utilix.ae2_utilix.AE2Utilix.PRODUCT_RETURN_CARD),
+                    expected, targetPos, this.getLinkFace())) {
+                didWork = true;
+                break;
+            }
+        }
+
+        if (didWork) {
+            this.ae2utilix$returnDelay = 1;
+        } else {
+            this.ae2utilix$returnDelay = Math.min(20,
+                    Math.max(1, (int) (this.ae2utilix$returnDelay * 1.15f)));
+        }
+    }
+
 
     private static final String NBT_LINK_DIM = "ae2utilix_link_dim";
     private static final String NBT_LINK_X = "ae2utilix_link_x";

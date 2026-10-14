@@ -1,6 +1,6 @@
 tile.ae2_utilix.phased_pattern_provider.name=相位样板供应器
 item.ae2_utilix.product_return_card.name=产物返回卡
-item.ae2_utilix.product_return_card.tooltip.1=允许ME接口在推送原料后从同一面提取成品
+item.ae2_utilix.product_return_card.tooltip.1=允许样板供应器在推送原料后，从同一面提取产物
 item.ae2_utilix.phase_card.name=移相卡
 item.ae2_utilix.phase_card.tooltip.1=已标记方向: %s
 item.ae2_utilix.phase_card.tooltip.2=未标记方向 (潜行右键方块标记)

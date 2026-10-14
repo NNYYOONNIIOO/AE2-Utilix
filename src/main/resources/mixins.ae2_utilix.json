@@ -6,7 +6,9 @@
   "compatibilityLevel": "JAVA_25",
   "refmap": "mixins.ae2_utilix.refmap.json",
   "mixins": [
-    "MixinPatternProviderLogic"
+    "MixinPatternProviderLogic",
+    "MixinPatternProviderLogicMagnet",
+    "MixinInterfaceLogicMagnet"
   ],
   "client": [],
   "server": [],

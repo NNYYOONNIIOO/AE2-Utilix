@@ -1,5 +1,5 @@
 item.ae2_utilix.product_return_card.name=Product Return Card
-item.ae2_utilix.product_return_card.tooltip.1=Allows ME Interface to extract products from the same face after pushing materials
+item.ae2_utilix.product_return_card.tooltip.1=Allows the pattern provider to extract products from the same face after pushing materials
 item.ae2_utilix.phase_card.name=Phase Card
 item.ae2_utilix.phase_card.tooltip.1=Marked Direction: %s
 item.ae2_utilix.phase_card.tooltip.2=No direction marked (Sneak right-click a block to mark)

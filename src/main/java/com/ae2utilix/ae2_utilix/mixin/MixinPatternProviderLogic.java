@@ -13,7 +13,9 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * Redirects the pattern provider's push targets to the block linked by the coupling staff.
@@ -87,6 +89,21 @@ public abstract class MixinPatternProviderLogic {
             return ICraftingMachine.of(level, pos, side);
         }
         return ICraftingMachine.of(level, linked, this.ae2utilix$linkedFace(side));
+    }
+
+    /**
+     * After a pattern is pushed, the product return card starts polling the target block so
+     * the crafting outputs come back into the network. Only the pure item case is handled
+     * here; fluid and gas integration are not part of this port.
+     */
+    @Inject(method = "onPushPatternSuccess", at = @At("TAIL"), remap = false, require = 0)
+    private void ae2utilix$rememberExpectedOutputs(ae2.api.crafting.IPatternDetails pattern,
+                                                   CallbackInfo ci) {
+        TileEntity tile = this.host.getTileEntity();
+        if (!(tile instanceof com.ae2utilix.ae2_utilix.block.TilePhasedPatternProvider phased)) {
+            return;
+        }
+        phased.rememberExpectedOutputs(pattern);
     }
 
     @Redirect(
