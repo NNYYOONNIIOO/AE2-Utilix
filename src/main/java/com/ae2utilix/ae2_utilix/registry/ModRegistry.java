@@ -34,6 +34,10 @@ public final class ModRegistry {
         if (AE2UtilixConfig.registerCouplingStaff) {
             registerItem(AE2Utilix.COUPLING_STAFF);
         }
+        if (AE2UtilixConfig.registerCrystalGrowthChamber) {
+            registerBlock(AE2Utilix.BLOCK_CRYSTAL_GROWTH_CHAMBER, "crystal_growth_chamber");
+            registerTile("crystal_growth_chamber", com.ae2utilix.ae2_utilix.block.TileCrystalGrowthChamber.class);
+        }
     }
 
     /** Crafting recipes that cannot be expressed as plain JSON. */

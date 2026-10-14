@@ -25,15 +25,24 @@ public class AE2Utilix {
     public static final String MODID = Reference.MOD_ID;
     public static final Logger LOGGER = LogManager.getLogger(Reference.MOD_NAME);
 
+    @Mod.Instance(Reference.MOD_ID)
+    public static AE2Utilix INSTANCE;
+
+    public static AE2Utilix instance() {
+        return INSTANCE;
+    }
+
     /** Upgrade card family ids, used to group the supported-machine tooltip. */
     public static final String UPGRADE_PRODUCT_RETURN = "ae2utilix:product_return_card";
     public static final String UPGRADE_PHASE_CARD = "ae2utilix:phase_card";
-    public static final String UPGRADE_PARALLEL_CARD = "ae2utilix:parallel_card";
-    public static final String UPGRADE_OVERFLOW_DESTRUCTION = "ae2utilix:overflow_destruction_card";
 
     /** Phase interface block; only constructed when the feature is enabled. */
     public static final com.ae2utilix.ae2_utilix.block.BlockPhaseInterface BLOCK_PHASE_INTERFACE =
             new com.ae2utilix.ae2_utilix.block.BlockPhaseInterface();
+
+    /** Crystal growth chamber block. */
+    public static final com.ae2utilix.ae2_utilix.block.BlockCrystalGrowthChamber BLOCK_CRYSTAL_GROWTH_CHAMBER =
+            new com.ae2utilix.ae2_utilix.block.BlockCrystalGrowthChamber();
 
     /** Ported items. Blocks and tile entities are added here as they are migrated. */
     public static final com.ae2utilix.ae2_utilix.item.ItemCouplingStaff COUPLING_STAFF =

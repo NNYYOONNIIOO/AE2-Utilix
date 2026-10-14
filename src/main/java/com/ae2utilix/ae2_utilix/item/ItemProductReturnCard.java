@@ -99,7 +99,7 @@ public class ItemProductReturnCard extends Item implements com.ae2utilix.ae2_uti
     }
 
     @SideOnly(Side.CLIENT)
-    static void addSupportedTooltip(String upgradeTypeId, List<String> tooltip) {
+    public static void addSupportedTooltip(String upgradeTypeId, List<String> tooltip) {
         Map<ItemStack, Integer> supported = ModUpgradeRegistry.getSupported(upgradeTypeId);
         if (supported.isEmpty()) return;
         tooltip.add("");

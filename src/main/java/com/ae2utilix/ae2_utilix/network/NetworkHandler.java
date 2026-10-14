@@ -17,5 +17,7 @@ public final class NetworkHandler {
     public static void register() {
         CHANNEL.registerMessage(PacketHighlightBlock.Handler.class, PacketHighlightBlock.class, nextId++,
                 Side.CLIENT);
+        CHANNEL.registerMessage(PacketToggleCGCButton.Handler.class, PacketToggleCGCButton.class, nextId++,
+                Side.SERVER);
     }
 }

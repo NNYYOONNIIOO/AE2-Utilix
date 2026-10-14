@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "CIC",
+    "G G",
+    "CGC"
+  ],
+  "key": {
+    "C": { "item": "ae2:fluix_glass_cable" },
+    "I": { "item": "ae2:inscriber" },
+    "G": { "item": "ae2:growth_accelerator" }
+  },
+  "result": {
+    "item": "ae2_utilix:crystal_growth_chamber",
+    "count": 1
+  }
+}

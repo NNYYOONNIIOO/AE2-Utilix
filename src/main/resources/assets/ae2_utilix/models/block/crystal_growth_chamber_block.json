@@ -1,0 +1,6 @@
+{
+    "parent": "ae2_utilix:block/crystal_growth_chamber",
+    "textures": {
+        "particle": "ae2_utilix:blocks/texture"
+    }
+}

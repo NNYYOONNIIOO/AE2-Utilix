@@ -26,4 +26,16 @@ item.ae2_utilix.matter_decomposer.name=物质分解器
 item.ae2_utilix.matter_decomposer.mode_label=模式：
 item.ae2_utilix.matter_decomposer.mode.annihilation=物质瓦解者模式
 item.ae2_utilix.matter_decomposer.mode.brittle=脆性物质精析模式
-item.ae2_utilix.matter_decomposer.mode.regular=常规物质处理模式
+item.ae2_utilix.matter_decomposer.mode.regular=常规物质处理模式tile.ae2_utilix.crystal_growth_chamber.name=晶体培育仓
+ae2_utilix.gui.eject.on=自动输出：开
+ae2_utilix.gui.eject.off=自动输出：关
+ae2_utilix.gui.face.up=顶面
+ae2_utilix.gui.face.left=左侧
+ae2_utilix.gui.face.front=前面
+ae2_utilix.gui.face.right=右侧
+ae2_utilix.gui.face.down=底面
+ae2_utilix.gui.face.back=背面
+ae2_utilix.gui.shift_left_click_clear=Shift+左键清空
+ae2_utilix.gui.empty=空
+item.ae2_utilix.parallel_card.name=并行卡
+item.ae2_utilix.parallel_card.tooltip.1=增加设备工作的并行数量。

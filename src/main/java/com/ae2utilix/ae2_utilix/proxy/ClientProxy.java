@@ -4,6 +4,9 @@ import com.ae2utilix.ae2_utilix.AE2Utilix;
 import com.ae2utilix.ae2_utilix.Reference;
 import com.ae2utilix.ae2_utilix.config.AE2UtilixConfig;
 import net.minecraft.client.renderer.block.model.ModelResourceLocation;
+import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.world.World;
 import net.minecraft.item.Item;
 import net.minecraftforge.client.event.ModelRegistryEvent;
 import net.minecraftforge.client.model.ModelLoader;
@@ -38,6 +41,19 @@ public class ClientProxy extends CommonProxy {
         super.postInit(event);
     }
 
+    @Override
+    public Object getClientGuiElement(int id, EntityPlayer player, World world, int x, int y, int z) {
+        if (id != GUI_CRYSTAL_GROWTH_CHAMBER) {
+            return null;
+        }
+        net.minecraft.tileentity.TileEntity te = world.getTileEntity(new BlockPos(x, y, z));
+        if (te instanceof com.ae2utilix.ae2_utilix.block.TileCrystalGrowthChamber) {
+            return new com.ae2utilix.ae2_utilix.gui.GuiCrystalGrowthChamber(player.inventory,
+                    (com.ae2utilix.ae2_utilix.block.TileCrystalGrowthChamber) te);
+        }
+        return null;
+    }
+
     @SubscribeEvent
     public static void registerModels(ModelRegistryEvent event) {
         if (AE2UtilixConfig.registerProductReturnCard) {
@@ -51,6 +67,17 @@ public class ClientProxy extends CommonProxy {
         }
         if (AE2UtilixConfig.registerCouplingStaff) {
             registerItemModel(AE2Utilix.COUPLING_STAFF, "coupling_staff");
+        }
+        if (AE2UtilixConfig.registerCrystalGrowthChamber) {
+            net.minecraftforge.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(
+                    com.ae2utilix.ae2_utilix.block.TileCrystalGrowthChamber.class,
+                    new com.ae2utilix.ae2_utilix.client.RenderCrystalGrowthChamber());
+            net.minecraft.item.Item item =
+                    net.minecraft.item.Item.getItemFromBlock(AE2Utilix.BLOCK_CRYSTAL_GROWTH_CHAMBER);
+            if (item != null) {
+                ModelLoader.setCustomModelResourceLocation(item, 0,
+                        new ModelResourceLocation(AE2Utilix.MODID + ":crystal_growth_chamber", "inventory"));
+            }
         }
         if (AE2UtilixConfig.registerPhaseInterface) {
             Item item = Item.getItemFromBlock(AE2Utilix.BLOCK_PHASE_INTERFACE);
