@@ -68,6 +68,9 @@ public class ClientProxy extends CommonProxy {
         if (AE2UtilixConfig.registerCouplingStaff) {
             registerItemModel(AE2Utilix.COUPLING_STAFF, "coupling_staff");
         }
+        if (AE2UtilixConfig.registerMEChannelCaller) {
+            com.ae2utilix.ae2_utilix.integration.MEChannelCallerRegistration.registerModels();
+        }
         if (AE2UtilixConfig.registerCrystalGrowthChamber) {
             net.minecraftforge.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(
                     com.ae2utilix.ae2_utilix.block.TileCrystalGrowthChamber.class,

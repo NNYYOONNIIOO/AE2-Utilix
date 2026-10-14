@@ -39,8 +39,8 @@ dependencies {
     modRuntimeOnly 'ae2:supergiant:1.0.16'
 
     // Optional integrations that still have Cleanroom builds available.
-    modCompileOnly files('../libs/Baubles-1.12-1.5.2.jar')
-    modCompileOnly files('../libs/CraftTweaker2-1.12-4.1.20.715.jar')
+    compileOnly files('libs/Baubles-1.12-1.5.2.jar')
+    compileOnly files('libs/CraftTweaker2-1.12-4.1.20.715.jar')
 
     // The One Probe - available for Cleanroom, used by the channel caller probe.
     modCompileOnly 'curse.maven:the-one-probe-community-edition-885670:8896757'

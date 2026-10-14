@@ -1,0 +1,14 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "QRQ",
+    "QLQ",
+    "QQQ"
+  ],
+  "key": {
+    "Q": { "item": "ae2:quantum_ring" },
+    "R": { "item": "ae2:quantum_bridge_card" },
+    "L": { "item": "ae2:quantum_link" }
+  },
+  "result": { "item": "ae2_utilix:me_channel_caller", "count": 1 }
+}
