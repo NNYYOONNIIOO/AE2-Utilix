@@ -322,6 +322,9 @@ public final class MEChannelCallerNetwork {
                 // counts those in the touched node usage, so they must be excluded before
                 // working out how much the face can still hand out to us.
                 int ours = group.senderDraw();
+                if (com.ae2utilix.ae2_utilix.config.AE2UtilixConfig.debugChannelCaller) {
+                    debugGroup(entry.getKey(), group, specs, ours);
+                }
                 assignProvidedCapacity(entry.getValue(), specs, portNodes, remaining, ours);
                 if (group.specs != specs) {
                     group.syncProvided(specs);
@@ -352,6 +355,37 @@ public final class MEChannelCallerNetwork {
                 applyStatus(caller, null, specsByCaller.get(caller));
             }
         }
+    }
+
+    /**
+     * Logs the raw inputs behind one group channel budget.
+     *
+     * <p>Only runs while {@code debugChannelCaller} is enabled. Each sender face prints the
+     * capacity AE2 reports for the touched node, how much AE2 already uses on it, and the
+     * resulting allowance, which is what tells apart a wrong capacity from a wrong usage
+     * figure.</p>
+     */
+    private static void debugGroup(UUID id, ChannelGroup group, List<PortSpec> specs, int ours) {
+        StringBuilder line = new StringBuilder();
+        line.append("channel-caller uuid=").append(id)
+                .append(" occupied=").append(group.occupied)
+                .append(" supplied=").append(group.suppliedChannels())
+                .append(" reportedProvided=").append(group.totalProvided())
+                .append(" senderDraw=").append(ours);
+        for (PortSpec spec : specs) {
+            line.append(" | ").append(spec.sender ? "S" : "L").append(" face=").append(spec.face)
+                    .append(" cap=").append(nodeCapacity(spec.target))
+                    .append(" used=").append(usedChannelsAt(spec.target))
+                    .append(" remaining=").append(remainingAt(spec.target, ours))
+                    .append(" provided=").append(spec.provided);
+        }
+        AE2Utilix.LOGGER.info(line.toString());
+    }
+
+    /** Channels currently flowing through every sender face of this group. */
+    @Deprecated
+    private static int suppliedChannels(ChannelGroup group) {
+        return group.suppliedChannels();
     }
 
     private static void applyStatus(TileMEChannelCaller caller, @Nullable ChannelGroup group,
@@ -993,7 +1027,17 @@ public final class MEChannelCallerNetwork {
                     && requestedCapacity() > supplied;
         }
 
-        /** Sum of what the source side can feed into the touched sender faces. */
+        /** Channels currently flowing through every sender face of this group. */
+        private int suppliedChannels() {
+            int supplied = 0;
+            for (Port port : ports) {
+                if (port.spec.sender) {
+                    supplied += port.usedChannels();
+                }
+            }
+            return supplied;
+        }
+
         /**
          * Channels this group sender faces currently pull out of the upstream cables.
          * Measured live from the port links, never cached across passes.

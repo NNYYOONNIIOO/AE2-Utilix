@@ -6,6 +6,7 @@ import ae2.api.networking.ticking.TickRateModulation;
 import ae2.api.networking.ticking.TickingRequest;
 import ae2.helpers.InterfaceLogic;
 import ae2.helpers.InterfaceLogicHost;
+import com.ae2utilix.ae2_utilix.integration.AE2UtilixInterfaceAccess;
 import com.ae2utilix.ae2_utilix.integration.MachineMagnetHandler;
 import net.minecraft.tileentity.TileEntity;
 import org.spongepowered.asm.mixin.Final;
@@ -17,22 +18,17 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
- * Gives AE2's own ME interface the magnet card pickup behaviour.
+ * Runs the magnet card pickup for AE2's own ME interface.
  *
- * <p>The interface already ticks, so the scan is driven from its own ticking callback
- * instead of a second timer. A magnet card also multiplies the idle draw, matching the
- * original mod's behaviour.</p>
+ * <p>The ticking callbacks live on the private {@code InterfaceLogic$Ticker} inner class, so
+ * injecting into {@code InterfaceLogic} itself silently did nothing.</p>
  */
-@Mixin(InterfaceLogic.class)
-public abstract class MixinInterfaceLogicMagnet {
+@Mixin(targets = "ae2.helpers.InterfaceLogic$Ticker")
+public abstract class MixinInterfaceLogicTicker {
 
-    @Shadow
+    @Shadow(remap = false)
     @Final
-    protected IManagedGridNode mainNode;
-
-    @Shadow
-    @Final
-    protected InterfaceLogicHost host;
+    private InterfaceLogic this$0;
 
     @Unique
     private int ae2utilix$magnetTicker;
@@ -46,36 +42,37 @@ public abstract class MixinInterfaceLogicMagnet {
     @Unique
     private static final double AE2UTILIX_MAGNET_POWER_MULTIPLIER = 10.0;
 
-    /**
-     * Inserting the card does not wake a sleeping machine by itself, and a sleeping node
-     * never asks for its ticking request again, so the upgrade change has to wake it.
-     */
-    @Inject(method = "onUpgradesChanged", at = @At("TAIL"), remap = false, require = 0)
-    private void ae2utilix$wakeOnUpgradeChange(org.spongepowered.asm.mixin.injection.callback.CallbackInfo ci) {
-        this.mainNode.ifPresent((grid, node) -> grid.getTickManager().wakeDevice(node));
+    @Unique
+    private AE2UtilixInterfaceAccess ae2utilix$access() {
+        return (AE2UtilixInterfaceAccess) (Object) this.this$0;
+    }
+
+    @Unique
+    private IManagedGridNode ae2utilix$mainNode() {
+        return this.ae2utilix$access().ae2utilix$mainNode();
     }
 
     /** Keeps a sleeping interface awake while a magnet card is installed. */
-    @Inject(method = "getTickingRequest", at = @At("RETURN"), remap = false, require = 0)
+    @Inject(method = "getTickingRequest", at = @At("RETURN"), remap = false, require = 1)
     private void ae2utilix$stayAwakeForMagnet(IGridNode node,
-                                             CallbackInfoReturnable<TickingRequest> cir) {
+                                              CallbackInfoReturnable<TickingRequest> cir) {
         TickingRequest original = cir.getReturnValue();
         if (original == null || !original.isSleeping()) {
             return;
         }
-        var upgrades = ((InterfaceLogic) (Object) this).getUpgrades();
+        var upgrades = this.this$0.getUpgrades();
         if (MachineMagnetHandler.hasMagnetCard(upgrades)) {
             cir.setReturnValue(new TickingRequest(original.minTickRate(), original.maxTickRate(), false));
         }
     }
 
-    @Inject(method = "tickingRequest", at = @At("RETURN"), remap = false, require = 0)
+    @Inject(method = "tickingRequest", at = @At("RETURN"), remap = false, require = 1)
     private void ae2utilix$magnetTick(IGridNode node, int ticksSinceLastCall,
                                       CallbackInfoReturnable<TickRateModulation> cir) {
-        if (!this.mainNode.isActive()) {
+        if (!this.ae2utilix$mainNode().isActive()) {
             return;
         }
-        var upgrades = ((InterfaceLogic) (Object) this).getUpgrades();
+        var upgrades = this.this$0.getUpgrades();
         boolean hasMagnet = MachineMagnetHandler.hasMagnetCard(upgrades);
 
         if (hasMagnet != this.ae2utilix$lastMagnetState) {
@@ -93,14 +90,12 @@ public abstract class MixinInterfaceLogicMagnet {
         if (!hasMagnet) {
             return;
         }
-        if (++this.ae2utilix$magnetTicker < MachineMagnetHandler.SCAN_INTERVAL) {
-            return;
-        }
-        this.ae2utilix$magnetTicker = 0;
-
-        if (MachineMagnetHandler.doMagnetWork(node)
-                && cir.getReturnValue() == TickRateModulation.SLEEP) {
+        if (cir.getReturnValue() == TickRateModulation.SLEEP) {
             cir.setReturnValue(TickRateModulation.SLOWER);
+        }
+        if (++this.ae2utilix$magnetTicker >= MachineMagnetHandler.SCAN_INTERVAL) {
+            this.ae2utilix$magnetTicker = 0;
+            MachineMagnetHandler.doMagnetWork(node);
         }
     }
 }

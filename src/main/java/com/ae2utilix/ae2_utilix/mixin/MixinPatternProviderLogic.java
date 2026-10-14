@@ -26,7 +26,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * valid link keep behaving exactly like the stock one.</p>
  */
 @Mixin(PatternProviderLogic.class)
-public abstract class MixinPatternProviderLogic implements com.ae2utilix.ae2_utilix.integration.AE2UtilixReturnTrackerHook {
+public abstract class MixinPatternProviderLogic implements com.ae2utilix.ae2_utilix.integration.AE2UtilixPatternProviderAccess {
 
     @Shadow(remap = false)
     @Final
@@ -44,6 +44,16 @@ public abstract class MixinPatternProviderLogic implements com.ae2utilix.ae2_uti
     @Override
     public com.ae2utilix.ae2_utilix.integration.ProductReturnTracker ae2utilix$tracker() {
         return this.ae2utilix$returnTracker;
+    }
+
+    @Override
+    public ae2.api.networking.IManagedGridNode ae2utilix$mainNode() {
+        return this.mainNode;
+    }
+
+    @Override
+    public ae2.helpers.patternprovider.PatternProviderLogicHost ae2utilix$host() {
+        return this.host;
     }
 
     /** Resolves the linked target, or null when this provider is not phase-linked. */
@@ -163,7 +173,7 @@ public abstract class MixinPatternProviderLogic implements com.ae2utilix.ae2_uti
             phased.rememberExpectedOutputs(pattern);
             return;
         }
-        ((com.ae2utilix.ae2_utilix.integration.AE2UtilixReturnTrackerHook) (Object) this).ae2utilix$tracker().remember(pattern);
+        this.ae2utilix$returnTracker.remember(pattern);
         // A sleeping machine does not tick, so remembering new expected outputs has to
         // wake it. It will fall asleep again once the tracker is empty.
         this.host.saveChanges();

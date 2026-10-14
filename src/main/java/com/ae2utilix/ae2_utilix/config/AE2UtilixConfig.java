@@ -33,6 +33,9 @@ public static boolean renderFloatingItem = true;
     public static boolean registerPackerAndDevicePackage = true;
     public static boolean registerMEChannelCaller = true;
 
+    /** Logs the channel budget a caller works out, for diagnosing channel accounting. */
+    public static boolean debugChannelCaller = false;
+
     private static File loadedFile;
 
     public static void load(File configFile) {
@@ -95,6 +98,9 @@ public static boolean renderFloatingItem = true;
                     "Register the Packer and Device Package as a bound item group.");
             registerMEChannelCaller = config.getBoolean("registerMEChannelCaller", "registration", true,
                     "Register the ME Channel Caller and its switchable channel transport support.");
+            debugChannelCaller = config.getBoolean("debugChannelCaller", "debug", false,
+                    "Log how much channel budget each ME channel caller works out from its upstream cable. "
+                            + "Enable only while diagnosing channel accounting, then disable again.");
         } finally {
             if (config.hasChanged()) {
                 config.save();

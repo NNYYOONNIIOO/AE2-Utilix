@@ -7,8 +7,9 @@
   "refmap": "mixins.ae2_utilix.refmap.json",
   "mixins": [
     "MixinPatternProviderLogic",
-    "MixinPatternProviderLogicMagnet",
-    "MixinInterfaceLogicMagnet"
+    "MixinPatternProviderLogicTicker",
+    "MixinInterfaceLogicAccess",
+    "MixinInterfaceLogicTicker"
   ],
   "client": [],
   "server": [],
