@@ -1,0 +1,11 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": [
+    { "item": "ae2:basic_card" },
+    { "item": "minecraft:sticky_piston" }
+  ],
+  "result": {
+    "item": "ae2_utilix:product_return_card",
+    "count": 1
+  }
+}

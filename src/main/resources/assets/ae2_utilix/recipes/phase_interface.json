@@ -6,9 +6,9 @@
     " C "
   ],
   "key": {
-    "W": { "item": "appliedenergistics2:wireless_access_point" },
-    "I": { "item": "appliedenergistics2:interface" },
-    "C": { "item": "appliedenergistics2:material", "data": 9 }
+    "W": { "item": "ae2:wireless_access_point" },
+    "I": { "item": "ae2:interface" },
+    "C": { "item": "ae2:purified_fluix_crystal" }
   },
   "result": {
     "item": "ae2_utilix:phase_interface",

@@ -1,11 +1,7 @@
 {
-    "variants": {
-        "omnidirectional=true": {
-            "model": "ae2_utilix:phase_interface"
-        },
-        "omnidirectional=false": {
-            "model": "ae2_utilix:phase_interface_oriented",
-            "x": 90
-        }
+  "variants": {
+    "normal": {
+      "model": "ae2_utilix:phase_interface"
     }
+  }
 }

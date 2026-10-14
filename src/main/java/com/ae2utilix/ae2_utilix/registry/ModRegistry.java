@@ -31,6 +31,9 @@ public final class ModRegistry {
             registerBlock(AE2Utilix.BLOCK_PHASE_INTERFACE, "phase_interface");
             registerTile("phase_interface", com.ae2utilix.ae2_utilix.block.TilePhaseInterface.class);
         }
+        if (AE2UtilixConfig.registerCouplingStaff) {
+            registerItem(AE2Utilix.COUPLING_STAFF);
+        }
     }
 
     /** Crafting recipes that cannot be expressed as plain JSON. */

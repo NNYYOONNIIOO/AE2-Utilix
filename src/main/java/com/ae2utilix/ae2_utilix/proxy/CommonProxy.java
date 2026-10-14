@@ -9,6 +9,7 @@ public class CommonProxy implements IProxy {
     @Override
     public void preInit(FMLPreInitializationEvent event) {
         com.ae2utilix.ae2_utilix.registry.ModRegistry.register();
+        com.ae2utilix.ae2_utilix.network.NetworkHandler.register();
     }
 
     @Override

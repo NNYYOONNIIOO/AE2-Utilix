@@ -1,0 +1,11 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": [
+    { "item": "ae2:basic_card" },
+    { "item": "minecraft:tripwire_hook" }
+  ],
+  "result": {
+    "item": "ae2_utilix:phase_card",
+    "count": 1
+  }
+}

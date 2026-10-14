@@ -1,0 +1,22 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "  F",
+    " CS",
+    "DFN"
+  ],
+  "key": {
+    "F": [
+      { "item": "ae2:fluix_crystal" },
+      { "item": "ae2:fluix_dust" }
+    ],
+    "C": { "item": "ae2:charged_staff" },
+    "S": { "item": "ae2:advanced_card" },
+    "D": { "item": "ae2:dense_energy_cell" },
+    "N": { "item": "ae2:formation_core" }
+  },
+  "result": {
+    "item": "ae2_utilix:coupling_staff",
+    "count": 1
+  }
+}

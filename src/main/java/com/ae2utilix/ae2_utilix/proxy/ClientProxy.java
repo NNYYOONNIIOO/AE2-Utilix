@@ -24,6 +24,8 @@ public class ClientProxy extends CommonProxy {
     @Override
     public void preInit(FMLPreInitializationEvent event) {
         super.preInit(event);
+        net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(
+                com.ae2utilix.ae2_utilix.client.HighlightRenderer.class);
     }
 
     @Override
@@ -46,6 +48,9 @@ public class ClientProxy extends CommonProxy {
         }
         if (AE2UtilixConfig.registerMatterDecomposer) {
             registerItemModel(AE2Utilix.MATTER_DECOMPOSER, "matter_decomposer");
+        }
+        if (AE2UtilixConfig.registerCouplingStaff) {
+            registerItemModel(AE2Utilix.COUPLING_STAFF, "coupling_staff");
         }
         if (AE2UtilixConfig.registerPhaseInterface) {
             Item item = Item.getItemFromBlock(AE2Utilix.BLOCK_PHASE_INTERFACE);

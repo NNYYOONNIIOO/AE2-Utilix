@@ -36,6 +36,8 @@ public class AE2Utilix {
             new com.ae2utilix.ae2_utilix.block.BlockPhaseInterface();
 
     /** Ported items. Blocks and tile entities are added here as they are migrated. */
+    public static final com.ae2utilix.ae2_utilix.item.ItemCouplingStaff COUPLING_STAFF =
+            new com.ae2utilix.ae2_utilix.item.ItemCouplingStaff();
     public static final com.ae2utilix.ae2_utilix.item.ItemMatterDecomposer MATTER_DECOMPOSER =
             new com.ae2utilix.ae2_utilix.item.ItemMatterDecomposer();
     public static final com.ae2utilix.ae2_utilix.item.ItemProductReturnCard PRODUCT_RETURN_CARD =
