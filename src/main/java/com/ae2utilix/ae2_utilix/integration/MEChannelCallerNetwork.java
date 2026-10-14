@@ -60,9 +60,7 @@ import java.util.WeakHashMap;
 public final class MEChannelCallerNetwork {
     private static final long REFRESH_INTERVAL = 10L;
     private static final int MAX_GRID_SCAN = 4096;
-    /** Only used when AE2's own configuration cannot be read. */
-    private static final int FALLBACK_DENSE_CAPACITY = 32;
-    private static final int FALLBACK_NORMAL_CAPACITY = 8;
+
 
     /**
      * Listener for the synthetic port nodes. They own no persistent state and never take
@@ -113,16 +111,25 @@ public final class MEChannelCallerNetwork {
     private MEChannelCallerNetwork() {
     }
     /**
-     * Channel capacity of a dense link. Supergiant no longer exposes AE2's configured
-     * values, so the standard figures are used.
+     * Channel capacity of a dense link, following AE2's configured channel mode so the
+     * caller never reports a figure the network itself would not hand out.
      */
     private static int denseChannelCapacity() {
-        return FALLBACK_DENSE_CAPACITY;
+        return 32 * channelCapacityFactor();
     }
 
     /** Channel capacity of a normal (non dense) link. */
     private static int normalChannelCapacity() {
-        return FALLBACK_NORMAL_CAPACITY;
+        return 8 * channelCapacityFactor();
+    }
+
+    /** AE2's cable capacity multiplier, 1 when it cannot be read. */
+    private static int channelCapacityFactor() {
+        try {
+            return Math.max(1, AEConfig.instance().getChannelMode().getCableCapacityFactor());
+        } catch (Throwable ignored) {
+            return 1;
+        }
     }
 
     /**
@@ -318,17 +325,20 @@ public final class MEChannelCallerNetwork {
                 group.syncProvided(specs);
             }
             if (group != null) {
-                // Channels our sender faces already pull out of the upstream cables. AE2
-                // counts those in the touched node usage, so they must be excluded before
-                // working out how much the face can still hand out to us.
-                int ours = group.senderDraw();
-                if (com.ae2utilix.ae2_utilix.config.AE2UtilixConfig.debugChannelCaller) {
-                    debugGroup(entry.getKey(), group, specs, ours);
-                }
-                assignProvidedCapacity(entry.getValue(), specs, portNodes, remaining, ours);
                 if (group.specs != specs) {
                     group.syncProvided(specs);
                 }
+                group.captureDraw(specs);
+                assignProvidedCapacity(entry.getValue(), specs, portNodes, remaining);
+                if (group.specs != specs) {
+                    group.syncProvided(specs);
+                }
+                if (com.ae2utilix.ae2_utilix.config.AE2UtilixConfig.debugChannelCaller) {
+                    debugGroup(entry.getKey(), group, specs);
+                }
+                // The senders that can actually supply channels may have changed, which is
+                // the moment the listener pairing has to be rebuilt.
+                group.rebuildLinks();
                 group.sourceGrid = senderGrid(entry.getValue());
                 long seen = Long.MAX_VALUE;
                 long earliest = Long.MAX_VALUE;
@@ -365,28 +375,26 @@ public final class MEChannelCallerNetwork {
      * resulting allowance, which is what tells apart a wrong capacity from a wrong usage
      * figure.</p>
      */
-    private static void debugGroup(UUID id, ChannelGroup group, List<PortSpec> specs, int ours) {
+    private static void debugGroup(UUID id, ChannelGroup group, List<PortSpec> specs) {
         StringBuilder line = new StringBuilder();
         line.append("channel-caller uuid=").append(id)
                 .append(" occupied=").append(group.occupied)
-                .append(" supplied=").append(group.suppliedChannels())
-                .append(" reportedProvided=").append(group.totalProvided())
-                .append(" senderDraw=").append(ours);
+                .append(" carried=").append(group.suppliedChannels())
+                .append(" provided=").append(group.totalProvided())
+                .append(" supplyingFaces=").append(group.supplyingCount());
         for (PortSpec spec : specs) {
             line.append(" | ").append(spec.sender ? "S" : "L").append(" face=").append(spec.face)
                     .append(" cap=").append(nodeCapacity(spec.target))
                     .append(" used=").append(usedChannelsAt(spec.target))
-                    .append(" remaining=").append(remainingAt(spec.target, ours))
+                    .append(" free=").append(remainingAt(spec.target, spec.ownDraw))
+                    .append(" ownDraw=").append(spec.ownDraw)
+                    .append(" canSupply=").append(spec.canSupply)
                     .append(" provided=").append(spec.provided);
         }
         AE2Utilix.LOGGER.info(line.toString());
     }
 
-    /** Channels currently flowing through every sender face of this group. */
-    @Deprecated
-    private static int suppliedChannels(ChannelGroup group) {
-        return group.suppliedChannels();
-    }
+
 
     private static void applyStatus(TileMEChannelCaller caller, @Nullable ChannelGroup group,
                                     @Nullable List<PortSpec> specs) {
@@ -590,8 +598,7 @@ public final class MEChannelCallerNetwork {
     private static void assignProvidedCapacity(List<TileMEChannelCaller> members,
                                                List<PortSpec> specs,
                                                Set<IGridNode> portNodes,
-                                               Map<Object, Integer> remaining,
-                                               int ours) {
+                                               Map<Object, Integer> remaining) {
         List<PortSpec> senders = new ArrayList<PortSpec>();
         for (PortSpec spec : specs) {
             if (spec.sender) {
@@ -604,41 +611,64 @@ public final class MEChannelCallerNetwork {
         Map<PortSpec, SourceRef> refs = new IdentityHashMap<PortSpec, SourceRef>();
         boolean anyController = false;
         for (PortSpec spec : senders) {
-            SourceRef ref = traceSource(spec, portNodes, ours);
+            SourceRef ref = traceSource(spec, portNodes);
             if (ref != null) {
                 refs.put(spec, ref);
                 anyController = true;
             }
         }
         if (!anyController) {
-            // Without a controller AE2 only serves such a network up to the normal
-            // capacity, and it hands out the very same number to every block in it. Once our
-            // own links merge those faces they are one ad hoc grid, so that one allotment is
-            // reported once for the whole group instead of once per touched face.
+            // Ad-hoc networks are limited as a whole, not per cable: AE2 hands every
+            // block in the network the same used figure, so what is left for us is that
+            // shared ceiling minus what the network already carries.
             int level = 0;
+            int used = 0;
+            int ourDraw = 0;
             for (PortSpec spec : senders) {
                 level = Math.max(level, faceChannelCapacity(spec.target));
+                used = Math.max(used, usedChannelsAt(spec.target));
+                ourDraw += spec.ownDraw;
             }
-            int shared = Math.min(level, normalChannelCapacity());
+            int limit = Math.min(level, normalChannelCapacity());
+            int shared = Math.max(0, limit - Math.max(0, used - ourDraw));
             for (int i = 0; i < senders.size(); i++) {
-                senders.get(i).provided = i == 0 ? shared : 0;
+                PortSpec spec = senders.get(i);
+                spec.canSupply = shared > 0;
+                spec.provided = i == 0 ? shared : 0;
             }
             return;
         }
+        Map<Object, Integer> ourDraw = new IdentityHashMap<Object, Integer>();
+        for (PortSpec spec : senders) {
+            SourceRef ref = refs.get(spec);
+            if (ref == null) {
+                continue;
+            }
+            for (Object resource : ref.resources) {
+                Integer previous = ourDraw.get(resource);
+                ourDraw.put(resource, (previous == null ? 0 : previous) + spec.ownDraw);
+            }
+        }
+
         for (PortSpec spec : senders) {
             SourceRef ref = refs.get(spec);
             if (ref == null) {
                 // This face cannot reach a controller while another face of the same UUID
                 // can, so it contributes nothing to the group's supply.
+                spec.canSupply = false;
                 spec.provided = 0;
                 continue;
             }
-            // Every resource on the way to the controller is shared. Once a cable has lent
-            // its channels to one caller it cannot lend the same channels again, so two
-            // callers sitting on one line can never add up to more than that line carries.
+            // Every resource on the way to the controller is shared. AE2's usage already
+            // counts every channel this UUID pulls through that resource, so the channels
+            // this group is responsible for are added back once per resource. A normal
+            // cable with seven of its eight channels taken by other devices therefore
+            // reports a single channel, while one that is carrying our own traffic keeps
+            // reporting the full capacity this link may use.
             int give = Integer.MAX_VALUE;
             for (Object resource : ref.resources) {
-                int available = availableChannels(resource, remaining, ours);
+                int available = availableChannels(resource, remaining,
+                        ourContribution(ourDraw, resource));
                 if (available < give) {
                     give = available;
                 }
@@ -650,11 +680,19 @@ public final class MEChannelCallerNetwork {
                 give = 0;
             }
             for (Object resource : ref.resources) {
-                int available = availableChannels(resource, remaining, ours);
+                int available = availableChannels(resource, remaining,
+                        ourContribution(ourDraw, resource));
                 remaining.put(resource, Math.max(0, available - give));
             }
+            spec.canSupply = give > 0;
             spec.provided = give;
         }
+    }
+
+    /** Channels this group already sends through one shared resource, added back once. */
+    private static int ourContribution(Map<Object, Integer> ourDraw, Object resource) {
+        Integer value = ourDraw.get(resource);
+        return value == null ? 0 : value;
     }
 
     /** Channels a shared resource can still hand out in this pass. */
@@ -664,7 +702,12 @@ public final class MEChannelCallerNetwork {
         return cached != null ? cached : liveRemaining(resource, ours);
     }
 
-    /** Channels a shared resource can hand out before anything is taken from it. */
+    /**
+     * Channels a shared resource can still hand to this link in total, read live from
+     * AE2's own figures. AE2's usage already contains the channels this link currently
+     * draws, so they are added back: the figure is what the resource can carry for us,
+     * not just what is still unused.
+     */
     private static int liveRemaining(Object resource, int ours) {
         int capacity = resourceCapacity(resource);
         if (capacity <= 0) {
@@ -677,15 +720,22 @@ public final class MEChannelCallerNetwork {
     private static int resourceCapacity(Object resource) {
         if (resource instanceof IGridConnection) {
             // A link is only as wide as the narrowest block it joins, so a normal cable
-            // must not be credited the dense figure just because it is a controller edge.
+            // must not be credited the dense figure just because it touches one.
             IGridConnection connection = (IGridConnection) resource;
-            int widest = 0;
+            int narrowest = 0;
             try {
-                widest = Math.max(faceChannelCapacity(connection.a()),
-                        faceChannelCapacity(connection.b()));
+                int first = faceChannelCapacity(connection.a());
+                int second = faceChannelCapacity(connection.b());
+                if (first <= 0) {
+                    narrowest = second;
+                } else if (second <= 0) {
+                    narrowest = first;
+                } else {
+                    narrowest = Math.min(first, second);
+                }
             } catch (Throwable ignored) {
             }
-            return widest > 0 ? widest : normalChannelCapacity();
+            return Math.max(0, narrowest);
         }
         if (resource instanceof IGridNode) {
             return faceChannelCapacity((IGridNode) resource);
@@ -775,7 +825,15 @@ public final class MEChannelCallerNetwork {
         return best;
     }
 
-    /** Channels still free on a carrying node, ignoring what this very link already sends. */
+    /**
+     * Channels still free on a carrying node, in AE2's own terms.
+     *
+     * <p>AE2 counts the channels it allocated to this node's whole subtree, which is
+     * exactly the traffic the node already carries, and refuses a new channel as soon as
+     * that figure reaches the node's capacity. That makes "capacity - used" the number of
+     * channels this node can still hand out, and it is why a normal cable with seven of its
+     * eight channels allocated must report a single channel rather than eight.</p>
+     */
     private static int remainingAt(@Nullable IGridNode node, int ours) {
         int level = faceChannelCapacity(node);
         if (level <= 0) {
@@ -795,18 +853,18 @@ public final class MEChannelCallerNetwork {
         if (node == null) {
             return 0;
         }
+        int used = 0;
         try {
             if (node instanceof ae2.me.GridNode gridNode) {
-                return Math.max(0, gridNode.getUsedChannels());
+                used = Math.max(0, gridNode.getUsedChannels());
             }
         } catch (Throwable ignored) {
             // Fall through to the connection scan below.
         }
-        int used = 0;
         try {
             for (IGridConnection connection : node.getConnections()) {
                 if (connection != null) {
-                    used = Math.max(used, connection.getUsedChannels());
+                    used = Math.max(used, Math.max(0, connection.getUsedChannels()));
                 }
             }
         } catch (Throwable ignored) {
@@ -830,7 +888,7 @@ public final class MEChannelCallerNetwork {
      * the edge leaving the controller identifies the controller face that pays for it.
      */
     @Nullable
-    private static SourceRef traceSource(PortSpec spec, Set<IGridNode> excluded, int ours) {
+    private static SourceRef traceSource(PortSpec spec, Set<IGridNode> excluded) {
         IGridNode face = spec.target;
         if (face == null || faceChannelCapacity(face) <= 0) {
             return null;
@@ -841,7 +899,7 @@ public final class MEChannelCallerNetwork {
             direct.add(spec);
             return new SourceRef(direct);
         }
-        int faceLevel = remainingAt(face, ours);
+        int faceLevel = remainingAt(face, spec.ownDraw);
         Map<IGridNode, Integer> best = new IdentityHashMap<IGridNode, Integer>();
         Map<IGridNode, List<Object>> paths = new IdentityHashMap<IGridNode, List<Object>>();
         ArrayDeque<IGridNode> queue = new ArrayDeque<IGridNode>();
@@ -890,7 +948,7 @@ public final class MEChannelCallerNetwork {
                 if (level <= 0) {
                     continue;
                 }
-                int candidate = Math.min(running, remainingAt(other, ours));
+                int candidate = Math.min(running, remainingAt(other, spec.ownDraw));
                 Integer existing = best.get(other);
                 if (existing == null || candidate > existing) {
                     best.put(other, candidate);
@@ -913,6 +971,10 @@ public final class MEChannelCallerNetwork {
         private final boolean sender;
         /** Channels this face can actually bring in, filled in once per reconcile pass. */
         private int provided;
+        /** Whether this face reaches a channel source at all; drives listener pairing. */
+        private boolean canSupply;
+        /** Channels this face currently draws out of the touched block. */
+        private int ownDraw;
 
         private PortSpec(TileMEChannelCaller owner, EnumFacing face, IGridNode target) {
             this.owner = owner;
@@ -933,6 +995,8 @@ public final class MEChannelCallerNetwork {
         private final List<PortSpec> specs;
         private final List<Port> ports = new ArrayList<Port>();
         private final List<IGridConnection> links = new ArrayList<IGridConnection>();
+        /** Senders the current links were built from, so relinking only happens on change. */
+        private final List<Port> linkedSenders = new ArrayList<Port>();
 
         private int occupied;
         private int maxChannels;
@@ -965,8 +1029,6 @@ public final class MEChannelCallerNetwork {
         }
 
         private void buildPorts() {
-            List<Port> senders = new ArrayList<Port>();
-            List<Port> listeners = new ArrayList<Port>();
             int index = 0;
             for (PortSpec spec : specs) {
                 Port port = Port.create(spec, index++);
@@ -976,27 +1038,90 @@ public final class MEChannelCallerNetwork {
                     continue;
                 }
                 ports.add(port);
-                if (spec.sender) {
-                    senders.add(port);
+                // Listeners are joined to senders in rebuildLinks(), once this pass has
+                // worked out which senders actually reach a channel source.
+            }
+            rebuildLinks();
+        }
+
+        /**
+         * Joins every listener to the senders that actually reach a channel source.
+         *
+         * <p>AE2 gives every node exactly one route back to the controller and counts the
+         * channels of the whole subtree on it, so a fully meshed link would make the whole
+         * receiver side hang off a single port's budget, while a fixed round robin starves
+         * every listener that happened to be paired with a sender which supplies nothing.
+         * Linking to the supplying senders only, and re-running the pairing whenever the
+         * set of supplying faces changes, keeps each face on its own path without ever
+         * leaving a listener without a source.</p>
+         */
+        private void rebuildLinks() {
+            List<Port> receivers = new ArrayList<Port>();
+            List<Port> supplying = new ArrayList<Port>();
+            for (Port port : ports) {
+                if (port.spec.sender) {
+                    if (port.spec.canSupply) {
+                        supplying.add(port);
+                    }
                 } else {
-                    listeners.add(port);
+                    receivers.add(port);
                 }
             }
-            // AE2 gives every node exactly one route back to the controller, so a fully
-            // meshed link would make the whole receiver side hang off a single sender and
-            // share that one port's channel budget. Pairing each receiver with its own
-            // sender keeps the pairs on separate paths, which is what lets every touched
-            // face carry up to AE2's configured capacity independently.
-            if (senders.isEmpty() || listeners.isEmpty()) {
+            boolean usable = !supplying.isEmpty() && !receivers.isEmpty();
+            if (!usable) {
+                // No sender can feed this link right now, so any stale wiring must go:
+                // keeping it would leave listeners hanging off a dead path.
+                dropLinks();
                 return;
             }
-            for (int i = 0; i < listeners.size(); i++) {
-                Port sender = senders.get(i % senders.size());
-                IGridConnection link = sender.linkTo(listeners.get(i).node());
+            if (links.size() == receivers.size() && linkedSenders.size() == supplying.size()) {
+                boolean same = true;
+                for (int i = 0; i < supplying.size() && same; i++) {
+                    same = linkedSenders.get(i) == supplying.get(i);
+                }
+                if (same) {
+                    return;
+                }
+            }
+            dropLinks();
+            for (int i = 0; i < receivers.size(); i++) {
+                Port sender = supplying.get(i % supplying.size());
+                IGridConnection link = sender.linkTo(receivers.get(i).node());
                 if (link != null) {
                     links.add(link);
                 }
             }
+            linkedSenders.addAll(supplying);
+        }
+
+        /**
+         * Copies each port's live draw onto the matching spec, so supply accounting can add
+         * back exactly the channels this one face is responsible for.
+         */
+        private void captureDraw(List<PortSpec> target) {
+            if (target == null || target.size() != ports.size()) {
+                return;
+            }
+            // Ports are built in the same order as the specs they describe, and matches()
+            // verifies that order every pass, so index alignment is what ties a port to the
+            // fresh spec list of this pass.
+            for (int i = 0; i < target.size(); i++) {
+                Port port = ports.get(i);
+                if (target.get(i).sender) {
+                    target.get(i).ownDraw = port.usedChannels();
+                } else {
+                    target.get(i).ownDraw = 0;
+                }
+            }
+        }
+
+        /** Severs the current listener links so a rebuilt pairing never leaves ghosts. */
+        private void dropLinks() {
+            for (IGridConnection link : new ArrayList<IGridConnection>(links)) {
+                destroyConnection(link);
+            }
+            links.clear();
+            linkedSenders.clear();
         }
 
         /** Re-reads the live channel usage; never cached across passes. */
@@ -1038,9 +1163,12 @@ public final class MEChannelCallerNetwork {
             return supplied;
         }
 
+
+
         /**
-         * Channels this group sender faces currently pull out of the upstream cables.
-         * Measured live from the port links, never cached across passes.
+         * Channels this group's sender faces currently pull out of the upstream cables.
+         * AE2 counts those in the touched nodes, so they are added back when working out
+         * how many channels the path can carry for this link in total.
          */
         private int senderDraw() {
             int drawn = 0;
@@ -1050,6 +1178,17 @@ public final class MEChannelCallerNetwork {
                 }
             }
             return drawn;
+        }
+
+        /** Sender faces that currently reach a channel source. */
+        private int supplyingCount() {
+            int count = 0;
+            for (Port port : ports) {
+                if (port.spec.sender && port.spec.canSupply) {
+                    count++;
+                }
+            }
+            return count;
         }
 
         private int totalProvided() {
@@ -1067,6 +1206,8 @@ public final class MEChannelCallerNetwork {
             }
             for (int i = 0; i < specs.size(); i++) {
                 specs.get(i).provided = fresh.get(i).provided;
+                specs.get(i).canSupply = fresh.get(i).canSupply;
+                specs.get(i).ownDraw = fresh.get(i).ownDraw;
             }
         }
 
@@ -1194,14 +1335,18 @@ public final class MEChannelCallerNetwork {
         private boolean isComplete() {
             boolean sender = false;
             boolean listener = false;
+            boolean supplying = false;
             for (Port port : ports) {
                 if (port.spec.sender) {
                     sender = true;
+                    supplying |= port.spec.canSupply;
                 } else {
                     listener = true;
                 }
             }
-            return sender && listener;
+            // A link with no sender reaching a channel source has nothing to hand over, so
+            // it reports "missing" instead of a connected link carrying zero channels.
+            return sender && listener && supplying;
         }
 
         private void destroy() {
