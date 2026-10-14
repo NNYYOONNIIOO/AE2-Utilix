@@ -103,10 +103,8 @@ public abstract class MixinPatternProviderLogic {
             remap = false,
             require = 0)
     private EnumFacing ae2utilix$redirectAdjacentSide(EnumFacing direction) {
-        BlockPos linked = this.ae2utilix$linkedPos();
-        if (linked == null) {
-            return direction.getOpposite();
-        }
+        // The marked face is the machine side to address, so it applies whether or not the
+        // block is coupled remotely. Only the position depends on the coupling link.
         return this.ae2utilix$linkedFace(direction.getOpposite());
     }
 
@@ -148,5 +146,20 @@ public abstract class MixinPatternProviderLogic {
     private BlockPos ae2utilix$redirectAdapterTarget(BlockPos pos, EnumFacing side) {
         BlockPos linked = this.ae2utilix$linkedPos();
         return linked != null ? linked : pos.offset(side);
+    }
+
+    /**
+     * The adapter is built for {@code side.getOpposite()} of the target block. Redirecting
+     * that here is what makes the phase card take effect for plain inventories; without it
+     * only the crafting machine path below would honour the marked face.
+     */
+    @Redirect(
+            method = "findAdapter",
+            at = @At(value = "INVOKE",
+                    target = "Lnet/minecraft/util/EnumFacing;getOpposite()Lnet/minecraft/util/EnumFacing;"),
+            remap = false,
+            require = 0)
+    private EnumFacing ae2utilix$redirectAdapterFace(EnumFacing side) {
+        return this.ae2utilix$linkedFace(side.getOpposite());
     }
 }

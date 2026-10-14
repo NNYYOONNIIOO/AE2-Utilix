@@ -47,6 +47,15 @@ public abstract class MixinPatternProviderLogicMagnet {
     private static final double AE2UTILIX_MAGNET_POWER_MULTIPLIER = 10.0;
 
     /**
+     * Inserting the card does not wake a sleeping machine by itself, and a sleeping node
+     * never asks for its ticking request again, so the upgrade change has to wake it.
+     */
+    @Inject(method = "onUpgradesChanged", at = @At("TAIL"), remap = false, require = 0)
+    private void ae2utilix$wakeOnUpgradeChange(org.spongepowered.asm.mixin.injection.callback.CallbackInfo ci) {
+        this.mainNode.ifPresent((grid, node) -> grid.getTickManager().wakeDevice(node));
+    }
+
+    /**
      * A sleeping node never receives {@code tickingRequest} at all, so the magnet card has
      * to keep the machine awake from the ticking request itself. Without this the five tick
      * scan would only run while the provider happened to have pattern work.

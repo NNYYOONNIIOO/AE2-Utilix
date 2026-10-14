@@ -318,7 +318,10 @@ public final class MEChannelCallerNetwork {
                 group.syncProvided(specs);
             }
             if (group != null) {
-                int ours = group.occupied;
+                // Channels our sender faces already pull out of the upstream cables. AE2
+                // counts those in the touched node usage, so they must be excluded before
+                // working out how much the face can still hand out to us.
+                int ours = group.senderDraw();
                 assignProvidedCapacity(entry.getValue(), specs, portNodes, remaining, ours);
                 if (group.specs != specs) {
                     group.syncProvided(specs);
@@ -991,6 +994,20 @@ public final class MEChannelCallerNetwork {
         }
 
         /** Sum of what the source side can feed into the touched sender faces. */
+        /**
+         * Channels this group sender faces currently pull out of the upstream cables.
+         * Measured live from the port links, never cached across passes.
+         */
+        private int senderDraw() {
+            int drawn = 0;
+            for (Port port : ports) {
+                if (port.spec.sender) {
+                    drawn += port.usedChannels();
+                }
+            }
+            return drawn;
+        }
+
         private int totalProvided() {
             int total = 0;
             for (PortSpec spec : specs) {

@@ -46,6 +46,15 @@ public abstract class MixinInterfaceLogicMagnet {
     @Unique
     private static final double AE2UTILIX_MAGNET_POWER_MULTIPLIER = 10.0;
 
+    /**
+     * Inserting the card does not wake a sleeping machine by itself, and a sleeping node
+     * never asks for its ticking request again, so the upgrade change has to wake it.
+     */
+    @Inject(method = "onUpgradesChanged", at = @At("TAIL"), remap = false, require = 0)
+    private void ae2utilix$wakeOnUpgradeChange(org.spongepowered.asm.mixin.injection.callback.CallbackInfo ci) {
+        this.mainNode.ifPresent((grid, node) -> grid.getTickManager().wakeDevice(node));
+    }
+
     /** Keeps a sleeping interface awake while a magnet card is installed. */
     @Inject(method = "getTickingRequest", at = @At("RETURN"), remap = false, require = 0)
     private void ae2utilix$stayAwakeForMagnet(IGridNode node,
