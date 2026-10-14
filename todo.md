@@ -27,7 +27,7 @@ Supergiant 依赖：`libs\AppliedEnergistics2-Supergiant-1.0.16.jar`
 3. 耦合手杖（Coupling Staff）
 4. 物质分解器（Matter Decomposer）
 5. ~~打包器 + 设备包裹 + 空设备包裹~~ —— **不迁移**：Supergiant 自带 ME封装胶带（`ae2:me_packing_tape`）与封装设备（`ae2:package`），可打包 ME 接口 / 样板供应器 / ME 驱动器方块及接口 / 样板供应器面板，并完整保留状态。
-6. 相位 ME 接口
+6. ~~相位 ME 接口~~ → **相位样板供应器 / Phased Pattern Provider**（`phased_pattern_provider`，2026-10-14 改造）
 7. 晶体培育仓
 8. ME 频道呼喊器 / ME 频道监听器
 9. ME 接口放入磁引卡功能（不联动 AE2 Better Magnet Card 的内容）
