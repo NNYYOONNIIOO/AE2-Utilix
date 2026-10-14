@@ -995,8 +995,8 @@ public final class MEChannelCallerNetwork {
         private final List<PortSpec> specs;
         private final List<Port> ports = new ArrayList<Port>();
         private final List<IGridConnection> links = new ArrayList<IGridConnection>();
-        /** Senders the current links were built from, so relinking only happens on change. */
-        private final List<Port> linkedSenders = new ArrayList<Port>();
+        /** Sender each listening face is currently wired to, so relinking only happens on change. */
+        private Port[] lastAssignment = new Port[0];
 
         private int occupied;
         private int maxChannels;
@@ -1067,31 +1067,178 @@ public final class MEChannelCallerNetwork {
                     receivers.add(port);
                 }
             }
-            boolean usable = !supplying.isEmpty() && !receivers.isEmpty();
-            if (!usable) {
-                // No sender can feed this link right now, so any stale wiring must go:
-                // keeping it would leave listeners hanging off a dead path.
+            if (supplying.isEmpty() || receivers.isEmpty()) {
+                // Nothing can be served, so any stale wiring must go.
                 dropLinks();
                 return;
             }
-            if (links.size() == receivers.size() && linkedSenders.size() == supplying.size()) {
-                boolean same = true;
-                for (int i = 0; i < supplying.size() && same; i++) {
-                    same = linkedSenders.get(i) == supplying.get(i);
+
+            // Every sender face is a pool of channels, and a listening face is a demand that
+            // must fit inside a single pool, because AE2 gives each node exactly one route
+            // back to its controller. Filling the biggest demands first and always choosing
+            // the tightest pool that still fits keeps the whole supply usable: a 25 channel
+            // sender is never wasted on a face that needs 32, and two smaller faces may
+            // share one 32 channel sender. That is the "sum then split" behaviour a plain
+            // one-to-one pairing cannot provide.
+            int[] demand = computeReceiverDemand(receivers);
+            List<Integer> order = new ArrayList<Integer>();
+            for (int i = 0; i < receivers.size(); i++) {
+                order.add(i);
+            }
+            Collections.sort(order, new Comparator<Integer>() {
+                @Override
+                public int compare(Integer first, Integer second) {
+                    return Integer.compare(demand[second], demand[first]);
                 }
-                if (same) {
-                    return;
+            });
+
+            List<Port> pools = new ArrayList<Port>(supplying);
+            Collections.sort(pools, new Comparator<Port>() {
+                @Override
+                public int compare(Port first, Port second) {
+                    return Integer.compare(second.spec.provided, first.spec.provided);
+                }
+            });
+            int[] remaining = new int[pools.size()];
+            for (int i = 0; i < pools.size(); i++) {
+                remaining[i] = Math.max(0, pools.get(i).spec.provided);
+            }
+
+            Port[] assignment = new Port[receivers.size()];
+            for (int index = 0; index < order.size(); index++) {
+                int receiver = order.get(index);
+                int need = Math.max(0, demand[receiver]);
+                int best = -1;
+                for (int pool = 0; pool < pools.size(); pool++) {
+                    if (remaining[pool] < need || remaining[pool] <= 0) {
+                        continue;
+                    }
+                    if (need == 0) {
+                        // A face with nothing behind it still needs a live route so newly
+                        // placed devices can be served without waiting for a relink.
+                        best = pool;
+                        break;
+                    }
+                    if (best < 0 || remaining[pool] < remaining[best]) {
+                        best = pool;
+                    }
+                }
+                if (best < 0) {
+                    // No pool is big enough on its own; use the largest one left so the
+                    // face still gets whatever it can, and the deficit stays visible.
+                    for (int pool = 0; pool < pools.size(); pool++) {
+                        if (remaining[pool] <= 0) {
+                            continue;
+                        }
+                        if (best < 0 || remaining[pool] > remaining[best]) {
+                            best = pool;
+                        }
+                    }
+                }
+                if (best < 0) {
+                    assignment[receiver] = null;
+                    continue;
+                }
+                assignment[receiver] = pools.get(best);
+                if (need > 0) {
+                    remaining[best] = Math.max(0, remaining[best] - Math.min(need, remaining[best]));
                 }
             }
+
+            boolean same = assignment.length == lastAssignment.length && links.size() == receivers.size();
+            if (same) {
+                for (int i = 0; i < assignment.length; i++) {
+                    if (assignment[i] != lastAssignment[i]) {
+                        same = false;
+                        break;
+                    }
+                }
+            }
+            if (same) {
+                return;
+            }
+
             dropLinks();
             for (int i = 0; i < receivers.size(); i++) {
-                Port sender = supplying.get(i % supplying.size());
-                IGridConnection link = sender.linkTo(receivers.get(i).node());
+                if (assignment[i] == null) {
+                    continue;
+                }
+                IGridConnection link = assignment[i].linkTo(receivers.get(i).node());
                 if (link != null) {
                     links.add(link);
                 }
             }
-            linkedSenders.addAll(supplying);
+            lastAssignment = assignment;
+        }
+
+        /**
+         * Channels each listening face needs, counted from the devices reachable behind it
+         * and capped at that face's own capacity. Devices behind a synthetic port are never
+         * followed, so the sender side is not counted as receiver demand.
+         */
+        private int[] computeReceiverDemand(List<Port> receivers) {
+            int[] demand = new int[receivers.size()];
+            int[] faceLimits = new int[receivers.size()];
+            Set<IGridNode> portNodes = Collections.newSetFromMap(
+                    new IdentityHashMap<IGridNode, Boolean>());
+            for (Port port : ports) {
+                IGridNode node = port.node();
+                if (node != null) {
+                    portNodes.add(node);
+                }
+                IGridNode owner = port.spec.owner.getMainNode().getNode();
+                if (owner != null) {
+                    portNodes.add(owner);
+                }
+            }
+            Map<IGridNode, Integer> origin = new IdentityHashMap<IGridNode, Integer>();
+            ArrayDeque<IGridNode> queue = new ArrayDeque<IGridNode>();
+            for (int i = 0; i < receivers.size(); i++) {
+                faceLimits[i] = Math.max(0, faceChannelCapacity(receivers.get(i).spec.target));
+                IGridNode start = receivers.get(i).spec.target;
+                if (start != null && !origin.containsKey(start)) {
+                    origin.put(start, i);
+                    queue.add(start);
+                }
+            }
+            int scanned = 0;
+            while (!queue.isEmpty() && scanned++ < MAX_GRID_SCAN) {
+                IGridNode node = queue.poll();
+                if (portNodes.contains(node)) {
+                    continue;
+                }
+                Integer source = origin.get(node);
+                if (source == null) {
+                    continue;
+                }
+                try {
+                    if (node.hasFlag(GridFlags.REQUIRE_CHANNEL)) {
+                        demand[source]++;
+                    }
+                } catch (Throwable ignored) {
+                }
+                List<IGridConnection> connections = new ArrayList<IGridConnection>();
+                try {
+                    for (IGridConnection connection : node.getConnections()) {
+                        connections.add(connection);
+                    }
+                } catch (Throwable ignored) {
+                }
+                for (IGridConnection connection : connections) {
+                    try {
+                        IGridNode other = connection.getOtherSide(node);
+                        if (other != null && !origin.containsKey(other)) {
+                            origin.put(other, source);
+                            queue.add(other);
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+            for (int i = 0; i < demand.length; i++) {
+                demand[i] = Math.min(demand[i], faceLimits[i]);
+            }
+            return demand;
         }
 
         /**
@@ -1121,7 +1268,7 @@ public final class MEChannelCallerNetwork {
                 destroyConnection(link);
             }
             links.clear();
-            linkedSenders.clear();
+            lastAssignment = new Port[0];
         }
 
         /** Re-reads the live channel usage; never cached across passes. */
@@ -1219,77 +1366,18 @@ public final class MEChannelCallerNetwork {
          */
         private int requestedCapacity() {
             List<Port> receivers = new ArrayList<Port>();
-            List<Integer> faceLimits = new ArrayList<Integer>();
             for (Port port : ports) {
                 if (!port.spec.sender) {
                     receivers.add(port);
-                    faceLimits.add(faceChannelCapacity(port.spec.target));
                 }
             }
             if (receivers.isEmpty()) {
                 return 0;
             }
-            int[] demand = new int[receivers.size()];
-            Set<IGridNode> portNodes = Collections.newSetFromMap(
-                    new IdentityHashMap<IGridNode, Boolean>());
-            for (Port port : ports) {
-                IGridNode node = port.node();
-                if (node != null) {
-                    portNodes.add(node);
-                }
-                IGridNode owner = port.spec.owner.getMainNode().getNode();
-                if (owner != null) {
-                    portNodes.add(owner);
-                }
-            }
-            Map<IGridNode, Integer> origin = new IdentityHashMap<IGridNode, Integer>();
-            ArrayDeque<IGridNode> queue = new ArrayDeque<IGridNode>();
-            for (int i = 0; i < receivers.size(); i++) {
-                IGridNode start = receivers.get(i).spec.target;
-                if (start != null && !origin.containsKey(start)) {
-                    origin.put(start, i);
-                    queue.add(start);
-                }
-            }
-            int scanned = 0;
-            while (!queue.isEmpty() && scanned++ < MAX_GRID_SCAN) {
-                IGridNode node = queue.poll();
-                if (portNodes.contains(node)) {
-                    // Never walk out of the receiver side through a synthetic port.
-                    continue;
-                }
-                Integer source = origin.get(node);
-                if (source == null) {
-                    continue;
-                }
-                try {
-                    if (node.hasFlag(GridFlags.REQUIRE_CHANNEL)) {
-                        demand[source]++;
-                    }
-                } catch (Throwable ignored) {
-                }
-                List<IGridConnection> connections = new ArrayList<IGridConnection>();
-                try {
-                    for (IGridConnection connection : node.getConnections()) {
-                        connections.add(connection);
-                    }
-                } catch (Throwable ignored) {
-                }
-                for (IGridConnection connection : connections) {
-                    try {
-                        IGridNode other = connection.getOtherSide(node);
-                        if (other != null && !origin.containsKey(other)) {
-                            origin.put(other, source);
-                            queue.add(other);
-                        }
-                    } catch (Throwable ignored) {
-                    }
-                }
-            }
+            int[] demand = computeReceiverDemand(receivers);
             int total = 0;
-            for (int i = 0; i < demand.length; i++) {
-                // Each face can only ever deliver what that face itself can carry.
-                total += Math.min(demand[i], faceLimits.get(i));
+            for (int value : demand) {
+                total += value;
             }
             return total;
         }
