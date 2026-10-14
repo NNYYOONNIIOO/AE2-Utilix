@@ -34,11 +34,23 @@ public final class ModUpgrades {
                     net.minecraft.item.Item.getItemFromBlock(AE2Utilix.BLOCK_PHASE_PATTERN_PROVIDER), 1);
         }
 
-        if (AE2UtilixConfig.registerProductReturnCard) {
-            addAe2InterfaceAndProvider(AE2Utilix.PRODUCT_RETURN_CARD);
+        // These two cards only make sense on the pattern provider: they steer pushed
+        // inputs and collect the crafting results, which an ME interface never does.
+        if (AE2UtilixConfig.registerProductReturnCard && AEBlocks.PATTERN_PROVIDER.item() != null) {
+            Upgrades.add(AE2Utilix.PRODUCT_RETURN_CARD, AEBlocks.PATTERN_PROVIDER.item(), 1,
+                    GuiText.CraftingInterface.getTranslationKey());
         }
-        if (AE2UtilixConfig.registerPhaseCard) {
-            addAe2InterfaceAndProvider(AE2Utilix.PHASE_CARD);
+        if (AE2UtilixConfig.registerProductReturnCard && AEParts.PATTERN_PROVIDER.item() != null) {
+            Upgrades.add(AE2Utilix.PRODUCT_RETURN_CARD, AEParts.PATTERN_PROVIDER.item(), 1,
+                    GuiText.CraftingInterface.getTranslationKey());
+        }
+        if (AE2UtilixConfig.registerPhaseCard && AEBlocks.PATTERN_PROVIDER.item() != null) {
+            Upgrades.add(AE2Utilix.PHASE_CARD, AEBlocks.PATTERN_PROVIDER.item(), 1,
+                    GuiText.CraftingInterface.getTranslationKey());
+        }
+        if (AE2UtilixConfig.registerPhaseCard && AEParts.PATTERN_PROVIDER.item() != null) {
+            Upgrades.add(AE2Utilix.PHASE_CARD, AEParts.PATTERN_PROVIDER.item(), 1,
+                    GuiText.CraftingInterface.getTranslationKey());
         }
 
         // Magnet cards are accepted by ME interfaces and pattern providers, matching what the

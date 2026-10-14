@@ -19,5 +19,7 @@ public final class NetworkHandler {
                 Side.CLIENT);
         CHANNEL.registerMessage(PacketToggleCGCButton.Handler.class, PacketToggleCGCButton.class, nextId++,
                 Side.SERVER);
+        CHANNEL.registerMessage(PacketSwitchDecomposerMode.Handler.class, PacketSwitchDecomposerMode.class, nextId++,
+                Side.SERVER);
     }
 }

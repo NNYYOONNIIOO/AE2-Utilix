@@ -3,6 +3,7 @@ package com.ae2utilix.ae2_utilix.mixin;
 import ae2.api.networking.IGridNode;
 import ae2.api.networking.IManagedGridNode;
 import ae2.api.networking.ticking.TickRateModulation;
+import ae2.api.networking.ticking.TickingRequest;
 import ae2.helpers.InterfaceLogic;
 import ae2.helpers.InterfaceLogicHost;
 import com.ae2utilix.ae2_utilix.integration.MachineMagnetHandler;
@@ -44,6 +45,20 @@ public abstract class MixinInterfaceLogicMagnet {
 
     @Unique
     private static final double AE2UTILIX_MAGNET_POWER_MULTIPLIER = 10.0;
+
+    /** Keeps a sleeping interface awake while a magnet card is installed. */
+    @Inject(method = "getTickingRequest", at = @At("RETURN"), remap = false, require = 0)
+    private void ae2utilix$stayAwakeForMagnet(IGridNode node,
+                                             CallbackInfoReturnable<TickingRequest> cir) {
+        TickingRequest original = cir.getReturnValue();
+        if (original == null || !original.isSleeping()) {
+            return;
+        }
+        var upgrades = ((InterfaceLogic) (Object) this).getUpgrades();
+        if (MachineMagnetHandler.hasMagnetCard(upgrades)) {
+            cir.setReturnValue(new TickingRequest(original.minTickRate(), original.maxTickRate(), false));
+        }
+    }
 
     @Inject(method = "tickingRequest", at = @At("RETURN"), remap = false, require = 0)
     private void ae2utilix$magnetTick(IGridNode node, int ticksSinceLastCall,

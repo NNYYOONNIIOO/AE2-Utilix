@@ -3,6 +3,7 @@ package com.ae2utilix.ae2_utilix.mixin;
 import ae2.api.networking.IGridNode;
 import ae2.api.networking.IManagedGridNode;
 import ae2.api.networking.ticking.TickRateModulation;
+import ae2.api.networking.ticking.TickingRequest;
 import ae2.helpers.patternprovider.PatternProviderLogic;
 import ae2.helpers.patternprovider.PatternProviderLogicHost;
 import com.ae2utilix.ae2_utilix.integration.MachineMagnetHandler;
@@ -44,6 +45,24 @@ public abstract class MixinPatternProviderLogicMagnet {
 
     @Unique
     private static final double AE2UTILIX_MAGNET_POWER_MULTIPLIER = 10.0;
+
+    /**
+     * A sleeping node never receives {@code tickingRequest} at all, so the magnet card has
+     * to keep the machine awake from the ticking request itself. Without this the five tick
+     * scan would only run while the provider happened to have pattern work.
+     */
+    @Inject(method = "getTickingRequest", at = @At("RETURN"), remap = false, require = 0)
+    private void ae2utilix$stayAwakeForMagnet(IGridNode node,
+                                             CallbackInfoReturnable<TickingRequest> cir) {
+        TickingRequest original = cir.getReturnValue();
+        if (original == null || !original.isSleeping()) {
+            return;
+        }
+        var upgrades = ((PatternProviderLogic) (Object) this).getUpgrades();
+        if (MachineMagnetHandler.hasMagnetCard(upgrades)) {
+            cir.setReturnValue(new TickingRequest(original.minTickRate(), original.maxTickRate(), false));
+        }
+    }
 
     @Inject(method = "tickingRequest", at = @At("RETURN"), remap = false, require = 0)
     private void ae2utilix$magnetTick(IGridNode node, int ticksSinceLastCall,

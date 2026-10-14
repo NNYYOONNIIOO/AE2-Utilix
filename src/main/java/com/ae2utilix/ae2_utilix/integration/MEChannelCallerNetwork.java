@@ -126,20 +126,40 @@ public final class MEChannelCallerNetwork {
     }
 
     /**
-     * Channels one touched face can actually provide, read from that face's own node
+     * Channels one touched face can actually provide, read from that face own node
      * instead of assuming the configured maximum: a face on a normal cable only supplies
      * the normal capacity, a face on dense cable or a controller supplies the dense
      * capacity, and a node that cannot carry channels supplies none.
      */
     private static int faceChannelCapacity(@Nullable IGridNode node) {
+        return nodeCapacity(node);
+    }
+
+    /**
+     * AE2 own capacity for a node, so the caller follows the configured channel mode.
+     * Returns 0 for nodes that cannot carry channels at all.
+     */
+    private static int nodeCapacity(@Nullable IGridNode node) {
+        if (node == null) {
+            return 0;
+        }
         try {
-            if (node == null) {
-                return 0;
-            }
             if (node.hasFlag(GridFlags.CANNOT_CARRY)) {
-                // A controller cannot carry channels but its faces hand them out.
+                // A controller does not carry channels itself, but its faces hand them out.
                 return node.hasFlag(GridFlags.DENSE_CAPACITY) ? denseChannelCapacity() : 0;
             }
+        } catch (Throwable ignored) {
+            return 0;
+        }
+        try {
+            if (node instanceof ae2.me.GridNode gridNode) {
+                // AE2 own figure, so the caller follows the configured channel mode.
+                return Math.max(0, gridNode.getMaxChannels());
+            }
+        } catch (Throwable ignored) {
+            // Fall through to the flag based estimate below.
+        }
+        try {
             return node.hasFlag(GridFlags.DENSE_CAPACITY)
                     ? denseChannelCapacity() : normalChannelCapacity();
         } catch (Throwable ignored) {
@@ -728,13 +748,22 @@ public final class MEChannelCallerNetwork {
     }
 
     /**
-     * Channels that already flow through a node. AE2 only exposes this per connection, so
-     * the busiest edge of the node is used as its current load, which is exactly the edge
-     * leading further up toward the channel source.
+     * Channels that already flow through a node.
+     *
+     * <p>{@code GridNode.getUsedChannels()} reports what AE2 own pathing assigned to that
+     * node, which is exactly the number the caller must subtract from the capacity. The
+     * per-connection figure is only a fallback for nodes that do not expose their count.</p>
      */
     private static int usedChannelsAt(@Nullable IGridNode node) {
         if (node == null) {
             return 0;
+        }
+        try {
+            if (node instanceof ae2.me.GridNode gridNode) {
+                return Math.max(0, gridNode.getUsedChannels());
+            }
+        } catch (Throwable ignored) {
+            // Fall through to the connection scan below.
         }
         int used = 0;
         try {
