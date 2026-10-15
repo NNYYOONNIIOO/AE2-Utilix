@@ -1,8 +1,8 @@
 {
 	"textures": {
-		"front": "ae2_utilix:parts/block_storage_bus",
-		"sides": "ae2:parts/storage_bus_sides",
-		"back": "ae2:parts/storage_bus_back"
+		"front": "ae2_utilix:part/block_storage_bus",
+		"sides": "ae2:part/storage_bus_sides",
+		"back": "ae2:part/storage_bus_back"
 	},
 	"elements": [
 		{
