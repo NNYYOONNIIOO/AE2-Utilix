@@ -48,6 +48,8 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile implements 
     public static final int INPUT_SLOTS = 9;
     public static final int OUTPUT_SLOTS = 6;
     public static final int UPGRADE_SLOTS = 5;
+    /** Cap on parallel cards, so the batch size stays bounded. */
+    public static final int MAX_PARALLEL_CARDS = 5;
 
     private final AppEngInternalInventory inputInv = new AppEngInternalInventory(this, INPUT_SLOTS);
     private final AppEngInternalInventory outputInv = new AppEngInternalInventory(this, OUTPUT_SLOTS);
@@ -151,8 +153,14 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile implements 
         if (data.hasKey("faceEject")) {
             unpackBooleans(data.getByteArray("faceEject"), this.faceEjectConfig);
         }
-        this.progress = data.getInteger("progress");
-        this.maxProgress = data.hasKey("maxProgress") ? data.getInteger("maxProgress") : 100;
+        // The active recipe holds ItemStack and FluidStack references and is not part of
+        // the saved data, so a saved progress value can never belong to a recipe again.
+        // Restoring it would leave the machine at a progress that can never reach
+        // maxProgress, which is what made it freeze permanently after a reload.
+        this.currentRecipe = null;
+        this.currentParallelRuns = 0;
+        this.progress = 0;
+        this.maxProgress = 100;
         if (data.hasKey("inputTank")) {
             this.inputTank.readFromNBT(data.getCompoundTag("inputTank"));
         }
@@ -170,8 +178,8 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile implements 
         data.setBoolean("powered", this.powered);
         data.setBoolean("ejecting", this.ejecting);
         data.setByteArray("faceEject", packBooleans(this.faceEjectConfig));
-        data.setInteger("progress", this.progress);
-        data.setInteger("maxProgress", this.maxProgress);
+        // Progress is deliberately not saved: the recipe itself cannot be, so the batch
+        // restarts instead of resuming into a state that no recipe matches.
         data.setTag("inputTank", this.inputTank.writeToNBT(new NBTTagCompound()));
         data.setTag("outputTank", this.outputTank.writeToNBT(new NBTTagCompound()));
     }
@@ -302,9 +310,24 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile implements 
         return count;
     }
 
-    /** Parallel cards are not part of this port's scope; batches are always single runs. */
+    /**
+     * Installed AE2S parallel cards, capped at five.
+     *
+     * <p>Each card doubles the batch size, so five cards allow up to 32 runs at once.</p>
+     */
     public int getParallelCardCount() {
-        return 0;
+        int count = 0;
+        for (int i = 0; i < this.upgradeInv.size(); i++) {
+            if (AEItems.PARALLEL_CARD.isSameAs(this.upgradeInv.getStackInSlot(i))) {
+                count++;
+            }
+        }
+        return Math.min(MAX_PARALLEL_CARDS, count);
+    }
+
+    /** Largest batch the installed parallel cards allow. */
+    public int getMaxParallelRuns() {
+        return 1 << this.getParallelCardCount();
     }
 
     public int getAdjustedProcessingTime(int baseTime) {
@@ -419,7 +442,7 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile implements 
     }
 
     private TickRateModulation tryStartRecipe() {
-        int maxParallelRuns = 1 << this.getParallelCardCount();
+        int maxParallelRuns = this.getMaxParallelRuns();
         CrystalGrowthRecipe recipe = null;
         int parallelRuns = 0;
         // Parallel cards give a maximum batch size, not a required one, so fall
@@ -457,12 +480,6 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile implements 
         this.maxProgress = this.getAdjustedProcessingTime(recipe.getProcessingTime());
         this.progress = 0;
 
-        if (recipe.getInputFluid() != null) {
-            FluidStack drainFluid = recipe.getInputFluid().copy();
-            drainFluid.amount *= parallelRuns;
-            this.inputTank.drain(drainFluid, true);
-        }
-
         return TickRateModulation.FASTER;
     }
 
@@ -480,8 +497,16 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile implements 
         this.markForUpdate();
 
         if (this.progress >= this.maxProgress) {
-            if (this.currentRecipe.canFitOutputs(this.outputInv.toItemHandler(), parallelRuns)
+            if (this.hasInputsFor(parallelRuns)
+                    && this.currentRecipe.canFitOutputs(this.outputInv.toItemHandler(), parallelRuns)
                     && this.currentRecipe.canFitFluidOutput(this.outputTank, parallelRuns)) {
+                // Inputs are consumed only once the batch actually completes, so quitting
+                // mid-batch cannot silently destroy materials.
+                if (this.currentRecipe.getInputFluid() != null) {
+                    FluidStack drainFluid = this.currentRecipe.getInputFluid().copy();
+                    drainFluid.amount *= parallelRuns;
+                    this.inputTank.drain(drainFluid, true);
+                }
                 for (int i = 0; i < parallelRuns; i++) {
                     this.currentRecipe.consumeInputs(this.inputInv.toItemHandler());
                 }
@@ -500,6 +525,21 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile implements 
         }
 
         return TickRateModulation.FASTER;
+    }
+
+    /**
+     * Confirms the batch is still fully chargeable when it finishes.
+     *
+     * <p>Inputs are only taken at completion, so the player can empty the tank or pull
+     * items out mid-batch. Without this check the machine would produce outputs it never
+     * paid for.</p>
+     */
+    private boolean hasInputsFor(int parallelRuns) {
+        if (this.currentRecipe == null) {
+            return false;
+        }
+        return this.currentRecipe.matches(this.inputInv.toItemHandler(),
+                this.inputTank.getFluid(), parallelRuns);
     }
 
     // -------------------------------------------------------------- client sync

@@ -131,8 +131,12 @@ public class ContainerCrystalGrowthChamber extends Container {
         return AEItems.SPEED_CARD.isSameAs(stack);
     }
 
+    private boolean isParallelCard(ItemStack stack) {
+        return AEItems.PARALLEL_CARD.isSameAs(stack);
+    }
+
     private boolean isUpgradeCard(ItemStack stack) {
-        return isSpeedCard(stack);
+        return isSpeedCard(stack) || isParallelCard(stack);
     }
 
     public TileCrystalGrowthChamber getCGC() {
@@ -157,7 +161,7 @@ public class ContainerCrystalGrowthChamber extends Container {
 
         @Override
         public boolean isItemValid(ItemStack stack) {
-            return AEItems.SPEED_CARD.isSameAs(stack);
+            return AEItems.SPEED_CARD.isSameAs(stack) || AEItems.PARALLEL_CARD.isSameAs(stack);
         }
 
         @Override
