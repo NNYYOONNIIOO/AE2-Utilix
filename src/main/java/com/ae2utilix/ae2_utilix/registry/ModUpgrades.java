@@ -6,6 +6,7 @@ import ae2.core.definitions.AEItems;
 import ae2.core.definitions.AEParts;
 import ae2.core.localization.GuiText;
 import com.ae2utilix.ae2_utilix.AE2Utilix;
+import com.ae2utilix.ae2_utilix.block.TileCrystalGrowthChamber;
 import com.ae2utilix.ae2_utilix.config.AE2UtilixConfig;
 import com.ae2utilix.ae2_utilix.upgrade.ModUpgradeRegistry;
 import net.minecraft.item.Item;
@@ -62,6 +63,26 @@ public final class ModUpgrades {
                     new ItemStack(net.minecraft.item.Item.getItemFromBlock(AE2Utilix.BLOCK_PHASE_PATTERN_PROVIDER)), 1);
         }
         registerMagnetCard();
+        registerCrystalGrowthChamberCards();
+    }
+
+    /**
+     * Speed and parallel cards for the crystal growth chamber.
+     *
+     * <p>Supergiant's machine list does not know about this block, so without these two
+     * registrations the upgrade slots reject both cards and the "supported by" tooltip
+     * never mentions the chamber.</p>
+     */
+    private static void registerCrystalGrowthChamberCards() {
+        if (!AE2UtilixConfig.registerCrystalGrowthChamber) {
+            return;
+        }
+        Item chamber = Item.getItemFromBlock(AE2Utilix.BLOCK_CRYSTAL_GROWTH_CHAMBER);
+        if (chamber == null) {
+            return;
+        }
+        Upgrades.add(AEItems.SPEED_CARD.item(), chamber, TileCrystalGrowthChamber.UPGRADE_SLOTS);
+        Upgrades.add(AEItems.PARALLEL_CARD.item(), chamber, TileCrystalGrowthChamber.MAX_PARALLEL_CARDS);
     }
 
     private static void addMachine(Item card, Item machine, int maxInstalled) {

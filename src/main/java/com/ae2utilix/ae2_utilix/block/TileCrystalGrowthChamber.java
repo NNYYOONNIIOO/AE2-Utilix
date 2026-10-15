@@ -153,14 +153,24 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile implements 
         if (data.hasKey("faceEject")) {
             unpackBooleans(data.getByteArray("faceEject"), this.faceEjectConfig);
         }
-        // The active recipe holds ItemStack and FluidStack references and is not part of
-        // the saved data, so a saved progress value can never belong to a recipe again.
-        // Restoring it would leave the machine at a progress that can never reach
-        // maxProgress, which is what made it freeze permanently after a reload.
-        this.currentRecipe = null;
-        this.currentParallelRuns = 0;
-        this.progress = 0;
-        this.maxProgress = 100;
+        // Resume the batch that was running when the world was saved. The recipe is stored
+        // as its own tag, so a reload continues from the saved progress instead of giving
+        // up the batch or leaving the chamber stuck on a recipe it cannot match again.
+        this.currentRecipe = data.hasKey("activeRecipe", 10)
+                ? CrystalGrowthRecipe.readFromNBT(data.getCompoundTag("activeRecipe"))
+                : null;
+        this.currentParallelRuns = data.hasKey("activeParallel") ? data.getInteger("activeParallel") : 0;
+        this.progress = data.hasKey("activeProgress") ? data.getInteger("activeProgress") : 0;
+        this.maxProgress = data.hasKey("activeMaxProgress") ? data.getInteger("activeMaxProgress") : 100;
+
+        // A batch whose inputs are gone by the time the world loads cannot be completed.
+        if (this.currentRecipe != null && !this.currentRecipe.matches(
+                this.inputInv.toItemHandler(), this.inputTank.getFluid(), Math.max(1, this.currentParallelRuns))) {
+            this.currentRecipe = null;
+            this.currentParallelRuns = 0;
+            this.progress = 0;
+            this.maxProgress = 100;
+        }
         if (data.hasKey("inputTank")) {
             this.inputTank.readFromNBT(data.getCompoundTag("inputTank"));
         }
@@ -178,8 +188,12 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile implements 
         data.setBoolean("powered", this.powered);
         data.setBoolean("ejecting", this.ejecting);
         data.setByteArray("faceEject", packBooleans(this.faceEjectConfig));
-        // Progress is deliberately not saved: the recipe itself cannot be, so the batch
-        // restarts instead of resuming into a state that no recipe matches.
+        if (this.currentRecipe != null) {
+            data.setTag("activeRecipe", this.currentRecipe.writeToNBT(new NBTTagCompound()));
+            data.setInteger("activeParallel", this.currentParallelRuns);
+            data.setInteger("activeProgress", this.progress);
+            data.setInteger("activeMaxProgress", this.maxProgress);
+        }
         data.setTag("inputTank", this.inputTank.writeToNBT(new NBTTagCompound()));
         data.setTag("outputTank", this.outputTank.writeToNBT(new NBTTagCompound()));
     }
@@ -515,13 +529,19 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile implements 
                     this.currentRecipe.produceFluidOutput(this.outputTank);
                 }
                 this.saveChanges();
+                this.currentRecipe = null;
+                this.currentParallelRuns = 0;
+                this.progress = 0;
+                this.maxProgress = 100;
+                TickRateModulation result = this.tryStartRecipe();
+                return result == TickRateModulation.IDLE ? TickRateModulation.URGENT : result;
             }
-            this.currentRecipe = null;
-            this.currentParallelRuns = 0;
-            this.progress = 0;
-            this.maxProgress = 100;
-            TickRateModulation result = this.tryStartRecipe();
-            return result == TickRateModulation.IDLE ? TickRateModulation.URGENT : result;
+
+            // The batch finished its work but the payout is blocked: the inputs were
+            // removed or the output slots filled up. Keep the finished batch and retry,
+            // so nothing the player already paid for is silently thrown away.
+            this.saveChanges();
+            return TickRateModulation.SLOWER;
         }
 
         return TickRateModulation.FASTER;
@@ -571,11 +591,27 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile implements 
     @Override
     protected boolean readFromStream(ByteBuf data) {
         boolean changed = super.readFromStream(data);
+
+        boolean oldEjecting = this.ejecting;
+        boolean oldPowered = this.powered;
+        int oldFaceMask = 0;
+        for (int i = 0; i < 6; i++) {
+            if (this.faceEjectConfig[i]) {
+                oldFaceMask |= 1 << i;
+            }
+        }
+        int oldProgress = this.progress;
+        int oldMaxProgress = this.maxProgress;
+        FluidStack oldInputFluid = this.inputTank.getFluid();
+        FluidStack oldOutputFluid = this.outputTank.getFluid();
+        ItemStack oldDisplay = this.clientDisplayStack;
+
         PacketBuffer buffer = new PacketBuffer(data);
+        int faceMask = 0;
         try {
             this.ejecting = buffer.readBoolean();
             this.powered = buffer.readBoolean();
-            int faceMask = buffer.readUnsignedByte();
+            faceMask = buffer.readUnsignedByte();
             for (int i = 0; i < 6; i++) {
                 this.faceEjectConfig[i] = (faceMask & (1 << i)) != 0;
             }
@@ -587,7 +623,25 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile implements 
         } catch (IOException e) {
             return changed;
         }
-        return true;
+
+        // AE2 only refreshes the client block when something actually changed, so every
+        // field is compared instead of unconditionally reporting a difference.
+        changed |= oldEjecting != this.ejecting;
+        changed |= oldPowered != this.powered;
+        changed |= oldFaceMask != faceMask;
+        changed |= oldProgress != this.progress;
+        changed |= oldMaxProgress != this.maxProgress;
+        changed |= !ItemStack.areItemStacksEqual(oldDisplay, this.clientDisplayStack);
+        changed |= !fluidEquals(oldInputFluid, this.inputTank.getFluid());
+        changed |= !fluidEquals(oldOutputFluid, this.outputTank.getFluid());
+        return changed;
+    }
+
+    private static boolean fluidEquals(@Nullable FluidStack first, @Nullable FluidStack second) {
+        if (first == null || second == null) {
+            return first == second;
+        }
+        return first.isFluidEqual(second) && first.amount == second.amount;
     }
 
     // ------------------------------------------------------------------ caps

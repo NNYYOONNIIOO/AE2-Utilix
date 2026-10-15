@@ -7,11 +7,14 @@ import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.JsonToNBT;
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.nbt.NBTTagList;
 import net.minecraft.util.JsonUtils;
 import net.minecraftforge.fluids.FluidRegistry;
 import net.minecraftforge.fluids.FluidStack;
 import net.minecraftforge.fluids.FluidTank;
 import net.minecraftforge.items.IItemHandler;
+
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -202,6 +205,65 @@ public class CrystalGrowthRecipe {
         }
 
         return stack;
+    }
+
+    /**
+     * Serialises this recipe so an in-progress batch survives a world reload.
+     *
+     * <p>The recipe is rebuilt from this tag on load, which lets the chamber resume a
+     * batch instead of restarting or losing it.</p>
+     */
+    public NBTTagCompound writeToNBT(NBTTagCompound data) {
+        NBTTagList inputTags = new NBTTagList();
+        for (ItemStack stack : this.inputs) {
+            inputTags.appendTag(stack.writeToNBT(new NBTTagCompound()));
+        }
+        data.setTag("inputs", inputTags);
+
+        NBTTagList outputTags = new NBTTagList();
+        for (ItemStack stack : this.outputs) {
+            outputTags.appendTag(stack.writeToNBT(new NBTTagCompound()));
+        }
+        data.setTag("outputs", outputTags);
+
+        if (this.inputFluid != null) {
+            data.setTag("inputFluid", this.inputFluid.writeToNBT(new NBTTagCompound()));
+        }
+        if (this.outputFluid != null) {
+            data.setTag("outputFluid", this.outputFluid.writeToNBT(new NBTTagCompound()));
+        }
+        data.setInteger("processingTime", this.processingTime);
+        data.setDouble("energyCost", this.energyCost);
+        return data;
+    }
+
+    /** Rebuilds a recipe written by {@link #writeToNBT(NBTTagCompound)}, or null if invalid. */
+    @Nullable
+    public static CrystalGrowthRecipe readFromNBT(NBTTagCompound data) {
+        if (data == null || !data.hasKey("inputs", 9) || !data.hasKey("outputs", 9)) {
+            return null;
+        }
+
+        List<ItemStack> inputs = new ArrayList<>();
+        NBTTagList inputTags = data.getTagList("inputs", 10);
+        for (int i = 0; i < inputTags.tagCount(); i++) {
+            inputs.add(new ItemStack(inputTags.getCompoundTagAt(i)));
+        }
+
+        List<ItemStack> outputs = new ArrayList<>();
+        NBTTagList outputTags = data.getTagList("outputs", 10);
+        for (int i = 0; i < outputTags.tagCount(); i++) {
+            outputs.add(new ItemStack(outputTags.getCompoundTagAt(i)));
+        }
+
+        FluidStack inputFluid = data.hasKey("inputFluid", 10)
+                ? FluidStack.loadFluidStackFromNBT(data.getCompoundTag("inputFluid")) : null;
+        FluidStack outputFluid = data.hasKey("outputFluid", 10)
+                ? FluidStack.loadFluidStackFromNBT(data.getCompoundTag("outputFluid")) : null;
+
+        int processingTime = Math.max(1, data.getInteger("processingTime"));
+        double energyCost = data.getDouble("energyCost");
+        return new CrystalGrowthRecipe(inputs, inputFluid, outputs, outputFluid, processingTime, energyCost);
     }
 
     private static FluidStack parseFluidStack(JsonObject json) {
