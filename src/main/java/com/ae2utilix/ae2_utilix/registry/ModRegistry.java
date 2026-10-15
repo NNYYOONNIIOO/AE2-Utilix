@@ -39,6 +39,9 @@ public final class ModRegistry {
             registerBlock(AE2Utilix.BLOCK_CRYSTAL_GROWTH_CHAMBER, "crystal_growth_chamber");
             registerTile("crystal_growth_chamber", com.ae2utilix.ae2_utilix.block.TileCrystalGrowthChamber.class);
         }
+        if (AE2UtilixConfig.registerBlockStorageBus) {
+            registerItem(AE2Utilix.BLOCK_STORAGE_BUS);
+        }
         if (AE2UtilixConfig.registerMEChannelCaller) {
             // The whole caller lives behind this one call, so a disabled option keeps its
             // block, item, tile entity and event handlers out of the class loading path.

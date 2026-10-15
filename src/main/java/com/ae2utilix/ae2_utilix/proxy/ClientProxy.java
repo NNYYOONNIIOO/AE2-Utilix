@@ -71,6 +71,9 @@ public class ClientProxy extends CommonProxy {
         if (AE2UtilixConfig.registerMEChannelCaller) {
             com.ae2utilix.ae2_utilix.integration.MEChannelCallerRegistration.registerModels();
         }
+        if (AE2UtilixConfig.registerBlockStorageBus) {
+            registerItemModel(AE2Utilix.BLOCK_STORAGE_BUS, "block_storage_bus");
+        }
         if (AE2UtilixConfig.registerCrystalGrowthChamber) {
             net.minecraftforge.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(
                     com.ae2utilix.ae2_utilix.block.TileCrystalGrowthChamber.class,

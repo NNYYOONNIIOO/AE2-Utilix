@@ -68,6 +68,8 @@ public class AE2Utilix {
             new com.ae2utilix.ae2_utilix.item.ItemProductReturnCard();
     public static final com.ae2utilix.ae2_utilix.item.ItemPhaseCard PHASE_CARD =
             new com.ae2utilix.ae2_utilix.item.ItemPhaseCard();
+    public static final com.ae2utilix.ae2_utilix.part.ItemPartBlockStorageBus BLOCK_STORAGE_BUS =
+            new com.ae2utilix.ae2_utilix.part.ItemPartBlockStorageBus();
 
     @SidedProxy(modId = Reference.MOD_ID,
             clientSide = "com.ae2utilix.ae2_utilix.proxy.ClientProxy",

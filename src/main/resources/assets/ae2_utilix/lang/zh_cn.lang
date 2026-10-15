@@ -71,3 +71,5 @@ ae2_utilix.me_channel_listener.status.connected=频道已连接 §2%d§r/§4%d§
 ae2_utilix.me_channel_listener.status.overloaded=频道过载 §2%d§r/§4%d§r
 ae2_utilix.me_channel_listener.status.ambiguous=未接触任何ME方块
 ae2_utilix.me_channel_listener.mode=已切换为ME频道监听器输入模式。
+item.ae2_utilix.block_storage_bus.name=ME方块存储总线
+item.ae2_utilix.block_storage_bus.tooltip=可读取方块本身及其上方掉落的物品

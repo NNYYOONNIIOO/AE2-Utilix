@@ -1,0 +1,11 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": [
+    { "item": "ae2:storage_bus" },
+    { "item": "minecraft:comparator" }
+  ],
+  "result": {
+    "item": "ae2_utilix:block_storage_bus",
+    "count": 1
+  }
+}
