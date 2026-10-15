@@ -39,17 +39,39 @@ import org.jetbrains.annotations.Nullable;
  */
 public class PartBlockStorageBus extends StorageBusPart {
 
-    private static final ResourceLocation MODEL_BASE = AppEng.makeId("part/storage_bus_base");
+    /**
+     * Models of this mod's own storage bus. The base model is shared with the status
+     * variants, exactly like AE2's own storage bus models are structured.
+     */
+    private static final ResourceLocation MODEL_BASE =
+            new ResourceLocation("ae2_utilix", "part/block_storage_bus_base");
 
     @PartModels
-    public static final IPartModel MODELS_OFF = new PartModel(MODEL_BASE, AppEng.makeId("part/storage_bus_off"));
+    public static final IPartModel MODELS_OFF =
+            new PartModel(MODEL_BASE, new ResourceLocation("ae2_utilix", "part/block_storage_bus_off"));
 
     @PartModels
-    public static final IPartModel MODELS_ON = new PartModel(MODEL_BASE, AppEng.makeId("part/storage_bus_on"));
+    public static final IPartModel MODELS_ON =
+            new PartModel(MODEL_BASE, new ResourceLocation("ae2_utilix", "part/block_storage_bus_on"));
 
     @PartModels
-    public static final IPartModel MODELS_HAS_CHANNEL = new PartModel(MODEL_BASE,
-            AppEng.makeId("part/storage_bus_has_channel"));
+    public static final IPartModel MODELS_HAS_CHANNEL =
+            new PartModel(MODEL_BASE, new ResourceLocation("ae2_utilix", "part/block_storage_bus_has_channel"));
+
+    /**
+     * Uses this mod's own models. The inherited implementation resolves AE2's storage bus
+     * models, which is why the block previously rendered as a plain ME storage bus.
+     */
+    @Override
+    public IPartModel getStaticModels() {
+        if (this.isActive() && this.isPowered()) {
+            return MODELS_HAS_CHANNEL;
+        } else if (this.isPowered()) {
+            return MODELS_ON;
+        } else {
+            return MODELS_OFF;
+        }
+    }
 
     /** Storage backed by the faced block plus drops lying on it. */
     @Nullable
