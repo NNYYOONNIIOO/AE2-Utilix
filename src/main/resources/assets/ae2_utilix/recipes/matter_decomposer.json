@@ -1,0 +1,23 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "IP ",
+    "DEM",
+    "DDK"
+  ],
+  "key": {
+    "I": { "item": "ae2:inscriber" },
+    "P": { "item": "ae2:matter_cannon" },
+    "D": { "item": "ae2:dense_energy_cell" },
+    "E": { "item": "ae2:entropy_manipulator" },
+    "M": { "item": "ae2:annihilation_core" },
+    "K": [
+      { "item": "ae2:certus_quartz_cutting_knife" },
+      { "item": "ae2:nether_quartz_cutting_knife" }
+    ]
+  },
+  "result": {
+    "item": "ae2_utilix:matter_decomposer",
+    "count": 1
+  }
+}

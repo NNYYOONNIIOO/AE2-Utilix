@@ -2,7 +2,7 @@
   "inputs": [
     { "item": "minecraft:quartz", "count": 1 },
     { "item": "minecraft:redstone", "count": 1 },
-    { "item": "ae2:certus_quartz_crystal", "count": 1 }
+    { "item": "ae2:charged_certus_quartz_crystal", "count": 1 }
   ],
   "input_fluid": {
     "fluid": "water",
