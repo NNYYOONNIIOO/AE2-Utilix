@@ -19,7 +19,10 @@ import org.apache.logging.log4j.Logger;
  * renamed the package to {@code ae2.*} and replaced parts of its storage API, so every
  * feature in this port is adapted rather than copied verbatim.</p>
  */
-@Mod(modid = Reference.MOD_ID, name = Reference.MOD_NAME, version = Reference.VERSION)
+// "after:ae2" keeps this mod's own registration running after Supergiant finished its
+// bootstrap, so AE2's upgrade tables already exist when the card associations are added.
+@Mod(modid = Reference.MOD_ID, name = Reference.MOD_NAME, version = Reference.VERSION,
+        dependencies = "after:ae2")
 public class AE2Utilix {
 
     public static final String MODID = Reference.MOD_ID;

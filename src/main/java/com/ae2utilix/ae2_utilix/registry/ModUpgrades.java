@@ -26,6 +26,7 @@ public final class ModUpgrades {
 
     /** Registers all card-to-machine associations. Call once during pre-init. */
     public static void register() {
+        AE2Utilix.LOGGER.info("Registering AE2S Utilix upgrade card associations");
         if (AE2UtilixConfig.registerProductReturnCard && AE2UtilixConfig.registerPhaseInterface) {
             addMachine(AE2Utilix.PRODUCT_RETURN_CARD,
                     net.minecraft.item.Item.getItemFromBlock(AE2Utilix.BLOCK_PHASE_PATTERN_PROVIDER), 1);
@@ -83,6 +84,12 @@ public final class ModUpgrades {
         }
         Upgrades.add(AEItems.SPEED_CARD.item(), chamber, TileCrystalGrowthChamber.UPGRADE_SLOTS);
         Upgrades.add(AEItems.PARALLEL_CARD.item(), chamber, TileCrystalGrowthChamber.MAX_PARALLEL_CARDS);
+        // The card tooltip list is built from these associations, so logging the resolved
+        // entries makes a missed registration obvious without opening the game UI.
+        AE2Utilix.LOGGER.info("Upgrade cards supported by {}: speed={}, parallel={}",
+                chamber.getRegistryName(),
+                Upgrades.getMaxInstallable(AEItems.SPEED_CARD.item(), chamber),
+                Upgrades.getMaxInstallable(AEItems.PARALLEL_CARD.item(), chamber));
     }
 
     private static void addMachine(Item card, Item machine, int maxInstalled) {

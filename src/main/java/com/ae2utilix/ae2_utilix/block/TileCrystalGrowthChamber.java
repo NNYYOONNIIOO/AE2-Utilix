@@ -8,6 +8,9 @@ import ae2.api.networking.energy.IEnergyService;
 import ae2.api.networking.ticking.IGridTickable;
 import ae2.api.networking.ticking.TickRateModulation;
 import ae2.api.networking.ticking.TickingRequest;
+import ae2.api.upgrades.IUpgradeInventory;
+import ae2.api.upgrades.IUpgradeableObject;
+import ae2.api.upgrades.UpgradeInventories;
 import ae2.api.util.AECableType;
 import ae2.core.definitions.AEItems;
 import ae2.tile.grid.AENetworkedPoweredTile;
@@ -40,7 +43,8 @@ import java.util.EnumSet;
  * Crystal growth chamber: consumes items plus optional fluid and AE power to grow
  * crystals. Ported from the Forge build, adapted to Supergiant's tile/inventory API.
  */
-public class TileCrystalGrowthChamber extends AENetworkedPoweredTile implements IGridTickable {
+public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
+        implements IGridTickable, IUpgradeableObject {
 
     private static final double MAX_POWER = 100000.0;
     private static final double EXTRACT_RATE = 8000.0;
@@ -53,7 +57,17 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile implements 
 
     private final AppEngInternalInventory inputInv = new AppEngInternalInventory(this, INPUT_SLOTS);
     private final AppEngInternalInventory outputInv = new AppEngInternalInventory(this, OUTPUT_SLOTS);
-    private final AppEngInternalInventory upgradeInv = new AppEngInternalInventory(this, UPGRADE_SLOTS, 1);
+    /**
+     * AE2's own machine upgrade inventory.
+     *
+     * <p>Using this instead of a plain inventory is what makes AE2 accept the cards this
+     * machine declares in {@code Upgrades}, and it is also the source of the card tooltip
+     * list. A plain inventory accepts any item and knows nothing about the associations.</p>
+     */
+    private final IUpgradeInventory upgradeInv = UpgradeInventories.forMachine(
+            net.minecraft.item.Item.getItemFromBlock(
+                    com.ae2utilix.ae2_utilix.AE2Utilix.BLOCK_CRYSTAL_GROWTH_CHAMBER),
+            UPGRADE_SLOTS, this::saveChanges);
     private final InternalInventory combinedInv =
             new CombinedInternalInventory(this.inputInv, this.outputInv, this.upgradeInv);
     private final InternalInventory externalInv = new ExternalItemHandler();
@@ -111,6 +125,11 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile implements 
 
     public IItemHandler getUpgradeInv() {
         return this.upgradeInv.toItemHandler();
+    }
+
+    @Override
+    public IUpgradeInventory getUpgrades() {
+        return this.upgradeInv;
     }
 
     @Override
