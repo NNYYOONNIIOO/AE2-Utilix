@@ -23,13 +23,8 @@ public static boolean renderFloatingItem = true;
     public static boolean registerCommonBuses = true;
     public static boolean registerProductReturnCard = true;
     public static boolean registerPhaseCard = true;
-    public static boolean registerParallelCard = true;
-    public static boolean registerOverflowDestructionCard = true;
-    public static boolean registerFluidMark = true;
     public static boolean registerCouplingStaff = true;
     public static boolean registerMatterDecomposer = true;
-    public static boolean registerFluixResonancePivotCore = true;
-    public static boolean registerPackerAndDevicePackage = true;
     public static boolean registerMEChannelCaller = true;
 
 
@@ -78,20 +73,10 @@ public static boolean renderFloatingItem = true;
                     "Register the Product Return Card.");
             registerPhaseCard = config.getBoolean("registerPhaseCard", "registration", true,
                     "Register the Phase Card.");
-            registerParallelCard = config.getBoolean("registerParallelCard", "registration", true,
-                    "Register the Parallel Card.");
-            registerOverflowDestructionCard = config.getBoolean("registerOverflowDestructionCard", "registration", true,
-                    "Register the Overflow Destruction Card.");
-            registerFluidMark = config.getBoolean("registerFluidMark", "registration", true,
-                    "Register the virtual fluid/resource marker item.");
             registerCouplingStaff = config.getBoolean("registerCouplingStaff", "registration", true,
                     "Register the Coupling Staff.");
             registerMatterDecomposer = config.getBoolean("registerMatterDecomposer", "registration", true,
                     "Register the Matter Decomposer.");
-            registerFluixResonancePivotCore = config.getBoolean("registerFluixResonancePivotCore", "registration", true,
-                    "Register the Fluix Resonance Pivot Core.");
-            registerPackerAndDevicePackage = config.getBoolean("registerPackerAndDevicePackage", "registration", true,
-                    "Register the Packer and Device Package as a bound item group.");
             registerMEChannelCaller = config.getBoolean("registerMEChannelCaller", "registration", true,
                     "Register the ME Channel Caller and its switchable channel transport support.");
 
