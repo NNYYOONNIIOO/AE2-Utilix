@@ -333,9 +333,7 @@ public final class MEChannelCallerNetwork {
                 if (group.specs != specs) {
                     group.syncProvided(specs);
                 }
-                if (com.ae2utilix.ae2_utilix.config.AE2UtilixConfig.debugChannelCaller) {
-                    debugGroup(entry.getKey(), group, specs);
-                }
+
                 // The senders that can actually supply channels may have changed, which is
                 // the moment the listener pairing has to be rebuilt.
                 group.rebuildLinks();
@@ -367,32 +365,6 @@ public final class MEChannelCallerNetwork {
         }
     }
 
-    /**
-     * Logs the raw inputs behind one group channel budget.
-     *
-     * <p>Only runs while {@code debugChannelCaller} is enabled. Each sender face prints the
-     * capacity AE2 reports for the touched node, how much AE2 already uses on it, and the
-     * resulting allowance, which is what tells apart a wrong capacity from a wrong usage
-     * figure.</p>
-     */
-    private static void debugGroup(UUID id, ChannelGroup group, List<PortSpec> specs) {
-        StringBuilder line = new StringBuilder();
-        line.append("channel-caller uuid=").append(id)
-                .append(" occupied=").append(group.occupied)
-                .append(" carried=").append(group.suppliedChannels())
-                .append(" provided=").append(group.totalProvided())
-                .append(" supplyingFaces=").append(group.supplyingCount());
-        for (PortSpec spec : specs) {
-            line.append(" | ").append(spec.sender ? "S" : "L").append(" face=").append(spec.face)
-                    .append(" cap=").append(nodeCapacity(spec.target))
-                    .append(" used=").append(usedChannelsAt(spec.target))
-                    .append(" free=").append(remainingAt(spec.target, spec.ownDraw))
-                    .append(" ownDraw=").append(spec.ownDraw)
-                    .append(" canSupply=").append(spec.canSupply)
-                    .append(" provided=").append(spec.provided);
-        }
-        AE2Utilix.LOGGER.info(line.toString());
-    }
 
 
 
@@ -423,8 +395,10 @@ public final class MEChannelCallerNetwork {
 
         boolean powered = group.isPowered();
         if (group.overloaded) {
+            // The numerator is what the devices ask for, so a link that wants 96 while
+            // only 89 can be carried reads "96/89" instead of repeating the carried count.
             caller.setStatus(TileMEChannelCaller.STATUS_ERROR,
-                    TileMEChannelCaller.REASON_OVERLOADED, group.occupied, group.maxChannels);
+                    TileMEChannelCaller.REASON_OVERLOADED, group.requested, group.maxChannels);
         } else if (powered && group.isComplete()) {
             caller.setStatus(TileMEChannelCaller.STATUS_CONNECTED,
                     TileMEChannelCaller.REASON_NONE, group.occupied, group.maxChannels);
@@ -1000,6 +974,8 @@ public final class MEChannelCallerNetwork {
 
         private int occupied;
         private int maxChannels;
+        /** Channels the listening devices actually ask for this pass. */
+        private int requested;
         private boolean overloaded;
         /** Grid the group's sender faces sit on, used to match a wireless terminal's network. */
         @Nullable
@@ -1294,49 +1270,14 @@ public final class MEChannelCallerNetwork {
             // everything the source can feed it, and the receiver side must still want
             // more than it received. A link with spare supply is never reported as
             // overloaded just because some devices elsewhere were refused channels.
+            this.requested = requestedCapacity();
             this.overloaded = senders > 0 && receivers > 0
                     && supplied >= maxChannels
-                    && requestedCapacity() > supplied;
-        }
-
-        /** Channels currently flowing through every sender face of this group. */
-        private int suppliedChannels() {
-            int supplied = 0;
-            for (Port port : ports) {
-                if (port.spec.sender) {
-                    supplied += port.usedChannels();
-                }
-            }
-            return supplied;
+                    && this.requested > supplied;
         }
 
 
 
-        /**
-         * Channels this group's sender faces currently pull out of the upstream cables.
-         * AE2 counts those in the touched nodes, so they are added back when working out
-         * how many channels the path can carry for this link in total.
-         */
-        private int senderDraw() {
-            int drawn = 0;
-            for (Port port : ports) {
-                if (port.spec.sender) {
-                    drawn += port.usedChannels();
-                }
-            }
-            return drawn;
-        }
-
-        /** Sender faces that currently reach a channel source. */
-        private int supplyingCount() {
-            int count = 0;
-            for (Port port : ports) {
-                if (port.spec.sender && port.spec.canSupply) {
-                    count++;
-                }
-            }
-            return count;
-        }
 
         private int totalProvided() {
             int total = 0;
