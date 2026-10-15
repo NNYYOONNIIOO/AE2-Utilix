@@ -2,17 +2,27 @@ package com.ae2utilix.ae2_utilix.part;
 
 import ae2.api.AECapabilities;
 import ae2.api.config.Actionable;
+import ae2.api.config.IncludeExclude;
+import ae2.api.config.Settings;
+import ae2.api.config.YesNo;
 import ae2.api.networking.security.IActionSource;
 import ae2.api.parts.IPartItem;
 import ae2.api.parts.IPartModel;
 import ae2.api.stacks.AEItemKey;
 import ae2.api.stacks.AEKey;
 import ae2.api.stacks.KeyCounter;
+import ae2.api.storage.IStorageMounts;
 import ae2.api.storage.MEStorage;
-import ae2.core.AppEng;
+import ae2.core.definitions.AEItems;
+import ae2.core.settings.TickRates;
 import ae2.items.parts.PartModels;
+import ae2.api.networking.IGridNode;
+import ae2.api.networking.ticking.TickRateModulation;
+import ae2.api.networking.ticking.TickingRequest;
+import ae2.me.storage.NullInventory;
 import ae2.parts.PartModel;
 import ae2.parts.storagebus.StorageBusPart;
+import ae2.util.prioritylist.IPartitionList;
 import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
 import net.minecraft.block.state.IBlockState;
@@ -20,6 +30,8 @@ import net.minecraft.entity.item.EntityItem;
 import net.minecraft.init.Items;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
+import net.minecraft.tileentity.TileEntity;
+import net.minecraft.util.EnumFacing;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.BlockPos;
@@ -31,11 +43,15 @@ import org.jetbrains.annotations.Nullable;
 /**
  * ME block storage bus.
  *
- * <p>Unlike AE2's own storage bus, this one also exposes the targeted block itself: the
- * block in front of the bus is reported as a one-item storage, and items inserted while
- * facing a replaceable position are dropped in front of the bus instead of being pushed
- * into a container. Drop entities sitting on the target block are both readable and
- * extractable, which is what makes the bus usable on farms and on plain block faces.</p>
+ * <p>Behaves like AE2's own storage bus when the faced block offers ME storage, and
+ * otherwise exposes the faced block itself plus any items lying in front of it, matching
+ * the Forge version of this mod:</p>
+ * <ul>
+ *   <li>the block itself is reported as a single read-only item,</li>
+ *   <li>dropped items in front of the bus can be read and extracted,</li>
+ *   <li>inserting an item drops it in front of the bus when that position is replaceable,
+ *       and is refused when a full block occupies it.</li>
+ * </ul>
  */
 public class PartBlockStorageBus extends StorageBusPart {
 
@@ -58,6 +74,17 @@ public class PartBlockStorageBus extends StorageBusPart {
     public static final IPartModel MODELS_HAS_CHANNEL =
             new PartModel(MODEL_BASE, new ResourceLocation("ae2_utilix", "part/block_storage_bus_has_channel"));
 
+    /** Storage backed by the faced block plus drops lying on it. */
+    @Nullable
+    private BlockAndEntityStorage blockStorage;
+
+    /** Whether the bus delegate currently is {@link #blockStorage} rather than a container. */
+    private boolean customDelegate;
+
+    public PartBlockStorageBus(IPartItem<?> partItem) {
+        super(partItem);
+    }
+
     /**
      * Uses this mod's own models. The inherited implementation resolves AE2's storage bus
      * models, which is why the block previously rendered as a plain ME storage bus.
@@ -73,95 +100,120 @@ public class PartBlockStorageBus extends StorageBusPart {
         }
     }
 
-    /** Storage backed by the faced block plus drops lying on it. */
-    @Nullable
-    private BlockAndEntityStorage blockStorage;
-
-    public PartBlockStorageBus(IPartItem<?> partItem) {
-        super(partItem);
-    }
-
     /**
-     * Replaces the target lookup so a block face with no ME storage still yields an
-     * inventory: the targeted block and any drops lying on it.
+     * Picks the delegate for the current target: a real container keeps AE2's own storage
+     * bus behaviour, anything else gets the block plus drops wrapper.
      */
     @Override
     protected void updateTarget(boolean forceFullUpdate) {
-        if (isClientSide()) {
-            super.updateTarget(forceFullUpdate);
-            return;
-        }
-        net.minecraft.util.EnumFacing side = this.getSide();
-        if (side == null) {
-            super.updateTarget(forceFullUpdate);
-            return;
-        }
-        BlockPos targetPos = this.getTileEntity().getPos().offset(side);
-        World world = getLevel();
-        if (world == null || !world.isBlockLoaded(targetPos)) {
+        BlockAndEntityStorage custom = resolveCustomStorage();
+        if (custom == null) {
+            this.customDelegate = false;
+            this.blockStorage = null;
             super.updateTarget(forceFullUpdate);
             return;
         }
 
-        // A block that actually offers ME storage keeps the stock behaviour.
-        net.minecraft.tileentity.TileEntity adjacent = world.getTileEntity(targetPos);
-        if (adjacent != null && adjacent.hasCapability(AECapabilities.ME_STORAGE, side.getOpposite())
-                && adjacent.getCapability(AECapabilities.ME_STORAGE, side.getOpposite()) != null) {
-            super.updateTarget(forceFullUpdate);
-            return;
-        }
-
-        if (this.blockStorage == null || !this.blockStorage.matches(world, targetPos)) {
-            this.blockStorage = new BlockAndEntityStorage(this, world, targetPos);
-        }
-        replaceDelegate(this.blockStorage);
-        invokeConfigureHandler();
-        this.remountStorage();
-        useHandlerAsMonitor();
-    }
-
-    /** Re-applies the bus filter settings; the stock method is private. */
-    private void invokeConfigureHandler() {
-        try {
-            java.lang.reflect.Method configure = findMethod(this.getClass(), "configureHandler");
-            if (configure != null) {
-                configure.setAccessible(true);
-                configure.invoke(this);
-            }
-        } catch (ReflectiveOperationException ignored) {
-            // Filtering falls back to the last applied configuration.
+        boolean changed = !this.customDelegate || this.blockStorage != custom;
+        this.blockStorage = custom;
+        this.customDelegate = true;
+        if (changed) {
+            installDelegate(custom);
+            configureHandler();
+            this.remountStorage();
         }
     }
 
+    /**
+     * The stock bus only mounts while its own target validation flag is set, and that flag
+     * is only written by the stock target lookup. This override mounts whenever the bus is
+     * online with a usable delegate.
+     */
+    @Override
+    public void mountInventories(IStorageMounts mounts) {
+        if (!getMainNode().isOnline()) {
+            return;
+        }
+        if (getInternalHandler() instanceof NullInventory) {
+            return;
+        }
+        mounts.mount(this.handler, getPriority());
+    }
+
+    @Override
+    public TickRateModulation tickingRequest(IGridNode node, int ticksSinceLastCall) {
+        if (!node.isOnline()) {
+            return TickRateModulation.SLEEP;
+        }
+        // Re-resolve every tick: the player may replace the faced block at any time.
+        updateTarget(false);
+        if (this.customDelegate) {
+            return this.handler.onTick();
+        }
+        return super.tickingRequest(node, ticksSinceLastCall);
+    }
+
+    @Override
+    public void onNeighborChanged(net.minecraft.world.IBlockAccess level, BlockPos pos, BlockPos neighbor) {
+        super.onNeighborChanged(level, pos, neighbor);
+        EnumFacing side = getSide();
+        if (side != null && !isClientSide() && pos.offset(side).equals(neighbor)) {
+            updateTarget(true);
+        }
+    }
+
+    /**
+     * Builds the wrapper for the faced position, or returns null when AE2's own storage
+     * lookup should handle the target instead.
+     */
     @Nullable
-    private static java.lang.reflect.Method findMethod(Class<?> type, String name) {
-        for (Class<?> current = type; current != null; current = current.getSuperclass()) {
-            try {
-                return current.getDeclaredMethod(name);
-            } catch (NoSuchMethodException ignored) {
-                // Keep searching the superclass chain.
-            }
+    private BlockAndEntityStorage resolveCustomStorage() {
+        if (isClientSide()) {
+            return null;
         }
-        return null;
+        EnumFacing side = getSide();
+        TileEntity self = getTileEntity();
+        if (side == null || self == null) {
+            return null;
+        }
+        World world = self.getWorld();
+        if (world == null) {
+            return null;
+        }
+        BlockPos targetPos = self.getPos().offset(side);
+        if (!world.isBlockLoaded(targetPos)) {
+            return null;
+        }
+
+        // A block that offers ME storage keeps the stock behaviour.
+        TileEntity adjacent = world.getTileEntity(targetPos);
+        if (adjacent != null && !adjacent.isInvalid()
+                && adjacent.hasCapability(AECapabilities.ME_STORAGE, side.getOpposite())
+                && adjacent.getCapability(AECapabilities.ME_STORAGE, side.getOpposite()) != null) {
+            return null;
+        }
+
+        BlockAndEntityStorage cached = this.blockStorage;
+        if (cached != null && cached.matches(world, targetPos)) {
+            return cached;
+        }
+        return new BlockAndEntityStorage(this, world, targetPos);
     }
 
-    /** Swaps the bus delegate. The stock setter is protected, so it is reached directly. */
-    private void replaceDelegate(MEStorage storage) {
+    /** Installs our wrapper as the bus delegate. The stock setter is protected. */
+    private void installDelegate(MEStorage storage) {
         try {
-            Class<?> declaring = null;
-            for (Class<?> type = this.handler.getClass(); type != null; type = type.getSuperclass()) {
+            java.lang.reflect.Method setter = null;
+            for (Class<?> type = this.handler.getClass(); type != null && setter == null; type = type.getSuperclass()) {
                 try {
-                    declaring = type;
-                    type.getDeclaredMethod("setDelegate", MEStorage.class);
-                    break;
+                    setter = type.getDeclaredMethod("setDelegate", MEStorage.class);
                 } catch (NoSuchMethodException ignored) {
-                    // Keep walking up until the class that declares the setter is found.
+                    // Keep walking up the hierarchy.
                 }
             }
-            if (declaring == null) {
+            if (setter == null) {
                 throw new NoSuchMethodException("setDelegate");
             }
-            java.lang.reflect.Method setter = declaring.getDeclaredMethod("setDelegate", MEStorage.class);
             setter.setAccessible(true);
             setter.invoke(this.handler, storage);
         } catch (ReflectiveOperationException error) {
@@ -169,38 +221,19 @@ public class PartBlockStorageBus extends StorageBusPart {
         }
     }
 
-    /**
-     * The stock bus only polls its delegate while a monitor is installed. Our delegate
-     * reads the world directly, so the handler itself becomes the monitor.
-     */
-    private void useHandlerAsMonitor() {
-        try {
-            java.lang.reflect.Field monitorField = findField(this.getClass(), "monitor");
-            if (monitorField == null) {
-                return;
-            }
-            monitorField.setAccessible(true);
-            monitorField.set(this, this.handler);
-        } catch (ReflectiveOperationException ignored) {
-            // Without the monitor the bus still reports contents; it just will not push
-            // incremental updates for drops that appear later.
-        }
-    }
-
-    @Nullable
-    private static java.lang.reflect.Field findField(Class<?> type, String name) {
-        for (Class<?> current = type; current != null; current = current.getSuperclass()) {
-            try {
-                return current.getDeclaredField(name);
-            } catch (NoSuchFieldException ignored) {
-                // Keep searching the superclass chain.
-            }
-        }
-        return null;
-    }
-
-    private BlockPos getTargetPos() {
-        return this.getTileEntity().getPos().offset(this.getSide());
+    /** Applies the same access and filter settings the stock bus would apply. */
+    private void configureHandler() {
+        this.handler.setAccessRestriction(this.getConfigManager().getSetting(Settings.ACCESS));
+        this.handler.setWhitelist(isUpgradedWith(AEItems.INVERTER_CARD)
+                ? IncludeExclude.BLACKLIST : IncludeExclude.WHITELIST);
+        IPartitionList partitionList = createFilter();
+        this.handler.setPartitionList(partitionList);
+        this.handler.setReadPartitionFiltering(!partitionList.isEmpty());
+        this.handler.setVoidOverflow(isUpgradedWith(AEItems.VOID_CARD));
+        this.handler.setSticky(isUpgradedWith(AEItems.STICKY_CARD));
+        boolean filterOnExtract = this.getConfigManager().getSetting(Settings.FILTER_ON_EXTRACT) == YesNo.YES;
+        this.handler.setExtractFiltering(filterOnExtract, isExtractableOnly() && filterOnExtract);
+        this.handler.configurationChanged();
     }
 
     /** Drops an item stack in front of the bus, mirroring formation plane drop mode. */
@@ -230,37 +263,17 @@ public class PartBlockStorageBus extends StorageBusPart {
             return this.world == otherWorld && this.pos.equals(otherPos);
         }
 
-        private KeyCounter collect() {
-            KeyCounter out = KeyCounter.saturating();
+        private ItemStack blockItem() {
             IBlockState state = this.world.getBlockState(this.pos);
             Block block = state.getBlock();
-            if (!block.isAir(state, this.world, this.pos)) {
-                Item item = Item.getItemFromBlock(block);
-                if (item != null && item != Items.AIR) {
-                    ItemStack stack = new ItemStack(item, 1, block.damageDropped(state));
-                    if (!stack.isEmpty()) {
-                        AEItemKey key = AEItemKey.of(stack);
-                        if (key != null) {
-                            out.add(key, 1);
-                        }
-                    }
-                }
+            if (block.isAir(state, this.world, this.pos)) {
+                return ItemStack.EMPTY;
             }
-            for (EntityItem drop : this.world.getEntitiesWithinAABB(EntityItem.class,
-                    new AxisAlignedBB(this.pos))) {
-                if (drop == null || drop.isDead) {
-                    continue;
-                }
-                ItemStack stack = drop.getItem();
-                if (stack.isEmpty()) {
-                    continue;
-                }
-                AEItemKey key = AEItemKey.of(stack);
-                if (key != null) {
-                    out.add(key, stack.getCount());
-                }
+            Item item = Item.getItemFromBlock(block);
+            if (item == null || item == Items.AIR) {
+                return ItemStack.EMPTY;
             }
-            return out;
+            return new ItemStack(item, 1, block.damageDropped(state));
         }
 
         @Override
@@ -270,14 +283,22 @@ public class PartBlockStorageBus extends StorageBusPart {
             }
             IBlockState state = this.world.getBlockState(this.pos);
             Block block = state.getBlock();
-            boolean replaceable = block.isAir(state, this.world, this.pos)
-                    || block.isReplaceable(this.world, this.pos);
-            if (!replaceable && state.getMaterial() != Material.AIR) {
+            // A solid, non-replaceable block refuses insertions; anything else accepts them
+            // and drops the item in front of the bus.
+            boolean occupied = !block.isAir(state, this.world, this.pos)
+                    && state.getMaterial() != Material.AIR
+                    && state.isNormalCube()
+                    && !block.isReplaceable(this.world, this.pos);
+            if (occupied) {
                 return 0;
             }
             if (mode == Actionable.MODULATE) {
-                ItemStack stack = itemKey.toStack((int) Math.min(Integer.MAX_VALUE, amount));
-                this.bus.spawnEntityItem(this.world, this.pos, stack);
+                long remaining = amount;
+                while (remaining > 0) {
+                    int size = (int) Math.min(remaining, 64);
+                    this.bus.spawnEntityItem(this.world, this.pos, itemKey.toStack(size));
+                    remaining -= size;
+                }
             }
             return amount;
         }
@@ -294,7 +315,7 @@ public class PartBlockStorageBus extends StorageBusPart {
                     continue;
                 }
                 ItemStack stack = drop.getItem();
-                if (stack.isEmpty() || !matches(what, stack)) {
+                if (stack.isEmpty() || !AEItemKey.matches(what, stack)) {
                     continue;
                 }
                 int taken = (int) Math.min(remaining, stack.getCount());
@@ -311,15 +332,28 @@ public class PartBlockStorageBus extends StorageBusPart {
             return amount - remaining;
         }
 
-        private static boolean matches(AEKey what, ItemStack stack) {
-            AEItemKey key = AEItemKey.of(stack);
-            return key != null && key.equals(what);
-        }
-
         @Override
         public void getAvailableStacks(KeyCounter out) {
-            for (var entry : collect()) {
-                out.add(entry.getKey(), entry.getLongValue());
+            ItemStack blockStack = blockItem();
+            if (!blockStack.isEmpty()) {
+                AEItemKey key = AEItemKey.of(blockStack);
+                if (key != null) {
+                    out.add(key, 1);
+                }
+            }
+            for (EntityItem drop : this.world.getEntitiesWithinAABB(EntityItem.class,
+                    new AxisAlignedBB(this.pos))) {
+                if (drop == null || drop.isDead) {
+                    continue;
+                }
+                ItemStack stack = drop.getItem();
+                if (stack.isEmpty()) {
+                    continue;
+                }
+                AEItemKey key = AEItemKey.of(stack);
+                if (key != null) {
+                    out.add(key, stack.getCount());
+                }
             }
         }
 
