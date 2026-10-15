@@ -4,6 +4,7 @@ import ae2.api.parts.IPartItem;
 import ae2.api.parts.PartModels;
 import ae2.items.parts.PartItem;
 import ae2.items.parts.PartModelsHelper;
+import com.ae2utilix.ae2_utilix.AE2Utilix;
 
 /**
  * Placement item for the ME block storage bus.
@@ -15,6 +16,9 @@ public class ItemPartBlockStorageBus extends PartItem<PartBlockStorageBus> {
 
     public ItemPartBlockStorageBus() {
         super(PartBlockStorageBus.class, ItemPartBlockStorageBus::create);
+        this.setRegistryName(AE2Utilix.MODID, "block_storage_bus");
+        this.setTranslationKey(AE2Utilix.MODID + ".block_storage_bus");
+        this.setCreativeTab(AE2Utilix.AE2_UTILIX_TAB);
         PartModels.registerModels(PartModelsHelper.createModels(PartBlockStorageBus.class));
     }
 
