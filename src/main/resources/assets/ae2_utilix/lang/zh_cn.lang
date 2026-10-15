@@ -73,3 +73,7 @@ ae2_utilix.me_channel_listener.status.ambiguous=未接触任何ME方块
 ae2_utilix.me_channel_listener.mode=已切换为ME频道监听器输入模式。
 item.ae2_utilix.block_storage_bus.name=ME方块存储总线
 item.ae2_utilix.block_storage_bus.tooltip=可读取方块本身及其上方掉落的物品
+tile.ae2_utilix.storage_terminal.name=ME终端（方块）
+tile.ae2_utilix.crafting_terminal.name=ME合成终端（方块）
+tile.ae2_utilix.pattern_terminal.name=ME样板终端（方块）
+tile.ae2_utilix.interface_terminal.name=ME接口终端（方块）

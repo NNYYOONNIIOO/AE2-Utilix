@@ -17,6 +17,8 @@ public class CommonProxy implements IProxy, IGuiHandler {
 
     /** GUI id of the crystal growth chamber. */
     public static final int GUI_CRYSTAL_GROWTH_CHAMBER = 0;
+    /** GUI id of the block form terminals, which share one handler. */
+    public static final int GUI_FULL_TERMINAL = 1;
 
     @Override
     public void preInit(FMLPreInitializationEvent event) {
@@ -41,12 +43,16 @@ public class CommonProxy implements IProxy, IGuiHandler {
 
     @Override
     public Object getServerGuiElement(int id, EntityPlayer player, World world, int x, int y, int z) {
-        if (id != GUI_CRYSTAL_GROWTH_CHAMBER) {
+        TileEntity te = world.getTileEntity(new BlockPos(x, y, z));
+        if (id == GUI_CRYSTAL_GROWTH_CHAMBER) {
+            if (te instanceof TileCrystalGrowthChamber) {
+                return new ContainerCrystalGrowthChamber(player.inventory, (TileCrystalGrowthChamber) te);
+            }
             return null;
         }
-        TileEntity te = world.getTileEntity(new BlockPos(x, y, z));
-        if (te instanceof TileCrystalGrowthChamber) {
-            return new ContainerCrystalGrowthChamber(player.inventory, (TileCrystalGrowthChamber) te);
+        if (id == GUI_FULL_TERMINAL) {
+            return com.ae2utilix.ae2_utilix.gui.FullTerminalGuiHandler.createServerContainer(
+                    player, (com.ae2utilix.ae2_utilix.block.terminal.TileFullTerminal) te);
         }
         return null;
     }

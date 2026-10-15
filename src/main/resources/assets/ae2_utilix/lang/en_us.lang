@@ -71,3 +71,7 @@ ae2_utilix.me_channel_listener.status.ambiguous=No ME block touched
 ae2_utilix.me_channel_listener.mode=Switched to ME Channel Listener input mode.
 item.ae2_utilix.block_storage_bus.name=ME Block Storage Bus
 item.ae2_utilix.block_storage_bus.tooltip=Reads the block itself and items dropped on it
+tile.ae2_utilix.storage_terminal.name=ME Terminal (Block)
+tile.ae2_utilix.crafting_terminal.name=ME Crafting Terminal (Block)
+tile.ae2_utilix.pattern_terminal.name=ME Pattern Terminal (Block)
+tile.ae2_utilix.interface_terminal.name=ME Interface Terminal (Block)

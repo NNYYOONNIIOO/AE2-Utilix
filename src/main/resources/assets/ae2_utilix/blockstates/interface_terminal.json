@@ -1,0 +1,10 @@
+{
+    "variants": {
+        "facing=north": { "model": "ae2_utilix:block/interface_terminal_off" },
+        "facing=south": { "model": "ae2_utilix:block/interface_terminal_off" },
+        "facing=east":  { "model": "ae2_utilix:block/interface_terminal_off" },
+        "facing=west":  { "model": "ae2_utilix:block/interface_terminal_off" },
+        "facing=up":    { "model": "ae2_utilix:block/interface_terminal_off" },
+        "facing=down":  { "model": "ae2_utilix:block/interface_terminal_off" }
+    }
+}

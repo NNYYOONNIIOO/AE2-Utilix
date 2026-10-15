@@ -43,13 +43,17 @@ public class ClientProxy extends CommonProxy {
 
     @Override
     public Object getClientGuiElement(int id, EntityPlayer player, World world, int x, int y, int z) {
-        if (id != GUI_CRYSTAL_GROWTH_CHAMBER) {
+        net.minecraft.tileentity.TileEntity te = world.getTileEntity(new BlockPos(x, y, z));
+        if (id == GUI_CRYSTAL_GROWTH_CHAMBER) {
+            if (te instanceof com.ae2utilix.ae2_utilix.block.TileCrystalGrowthChamber) {
+                return new com.ae2utilix.ae2_utilix.gui.GuiCrystalGrowthChamber(player.inventory,
+                        (com.ae2utilix.ae2_utilix.block.TileCrystalGrowthChamber) te);
+            }
             return null;
         }
-        net.minecraft.tileentity.TileEntity te = world.getTileEntity(new BlockPos(x, y, z));
-        if (te instanceof com.ae2utilix.ae2_utilix.block.TileCrystalGrowthChamber) {
-            return new com.ae2utilix.ae2_utilix.gui.GuiCrystalGrowthChamber(player.inventory,
-                    (com.ae2utilix.ae2_utilix.block.TileCrystalGrowthChamber) te);
+        if (id == GUI_FULL_TERMINAL) {
+            return com.ae2utilix.ae2_utilix.gui.FullTerminalGuiHandler.createClientGui(
+                    player, (com.ae2utilix.ae2_utilix.block.terminal.TileFullTerminal) te);
         }
         return null;
     }
@@ -73,6 +77,12 @@ public class ClientProxy extends CommonProxy {
         }
         if (AE2UtilixConfig.registerBlockStorageBus) {
             registerItemModel(AE2Utilix.BLOCK_STORAGE_BUS, "block_storage_bus");
+        }
+        if (AE2UtilixConfig.registerFullTerminals) {
+            registerItemModel(Item.getItemFromBlock(AE2Utilix.BLOCK_STORAGE_TERMINAL), "storage_terminal");
+            registerItemModel(Item.getItemFromBlock(AE2Utilix.BLOCK_CRAFTING_TERMINAL), "crafting_terminal");
+            registerItemModel(Item.getItemFromBlock(AE2Utilix.BLOCK_PATTERN_TERMINAL), "pattern_terminal");
+            registerItemModel(Item.getItemFromBlock(AE2Utilix.BLOCK_INTERFACE_TERMINAL), "interface_terminal");
         }
         if (AE2UtilixConfig.registerCrystalGrowthChamber) {
             net.minecraftforge.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(

@@ -71,6 +71,16 @@ public class AE2Utilix {
     public static final com.ae2utilix.ae2_utilix.part.ItemPartBlockStorageBus BLOCK_STORAGE_BUS =
             new com.ae2utilix.ae2_utilix.part.ItemPartBlockStorageBus();
 
+    /** Block form terminals. */
+    public static final com.ae2utilix.ae2_utilix.block.terminal.BlockStorageTerminal BLOCK_STORAGE_TERMINAL =
+            new com.ae2utilix.ae2_utilix.block.terminal.BlockStorageTerminal();
+    public static final com.ae2utilix.ae2_utilix.block.terminal.BlockCraftingTerminal BLOCK_CRAFTING_TERMINAL =
+            new com.ae2utilix.ae2_utilix.block.terminal.BlockCraftingTerminal();
+    public static final com.ae2utilix.ae2_utilix.block.terminal.BlockPatternTerminal BLOCK_PATTERN_TERMINAL =
+            new com.ae2utilix.ae2_utilix.block.terminal.BlockPatternTerminal();
+    public static final com.ae2utilix.ae2_utilix.block.terminal.BlockInterfaceTerminal BLOCK_INTERFACE_TERMINAL =
+            new com.ae2utilix.ae2_utilix.block.terminal.BlockInterfaceTerminal();
+
     @SidedProxy(modId = Reference.MOD_ID,
             clientSide = "com.ae2utilix.ae2_utilix.proxy.ClientProxy",
             serverSide = "com.ae2utilix.ae2_utilix.proxy.CommonProxy")

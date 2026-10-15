@@ -1,0 +1,14 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "IPI",
+    "PMP",
+    "IPI"
+  ],
+  "key": {
+    "I": { "item": "minecraft:iron_ingot" },
+    "P": { "item": "ae2:quartz_glass" },
+    "M": { "item": "ae2:pattern_access_terminal" }
+  },
+  "result": { "item": "ae2_utilix:interface_terminal", "count": 1 }
+}
