@@ -87,7 +87,9 @@ public class CrystalGrowthRecipeCategory implements IRecipeCategory<CrystalGrowt
         this.currentArrow = guiHelper.createAnimatedDrawable(this.arrowStatic, 100,
                 IDrawableAnimated.StartDirection.LEFT, false);
 
-        this.fluidRenderer = new BlockTextureFluidRenderer(FLUID_W, FLUID_H);
+        // The fluid sprite is drawn one pixel up and to the left so it lines up with the
+        // slot frame drawn behind it.
+        this.fluidRenderer = new BlockTextureFluidRenderer(FLUID_W, FLUID_H, -1, -1);
         this.localizedName = I18n.format("ae2_utilix.jei.crystal_growth.title");
     }
 
