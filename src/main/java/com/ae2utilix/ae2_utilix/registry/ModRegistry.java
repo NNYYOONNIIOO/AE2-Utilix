@@ -42,20 +42,7 @@ public final class ModRegistry {
         if (AE2UtilixConfig.registerBlockStorageBus) {
             registerItem(AE2Utilix.BLOCK_STORAGE_BUS);
         }
-        if (AE2UtilixConfig.registerFullTerminals) {
-            registerBlock(AE2Utilix.BLOCK_STORAGE_TERMINAL, "storage_terminal");
-            registerTile("storage_terminal",
-                    com.ae2utilix.ae2_utilix.block.terminal.TileStorageTerminal.class);
-            registerBlock(AE2Utilix.BLOCK_CRAFTING_TERMINAL, "crafting_terminal");
-            registerTile("crafting_terminal",
-                    com.ae2utilix.ae2_utilix.block.terminal.TileCraftingTerminal.class);
-            registerBlock(AE2Utilix.BLOCK_PATTERN_TERMINAL, "pattern_terminal");
-            registerTile("pattern_terminal",
-                    com.ae2utilix.ae2_utilix.block.terminal.TilePatternTerminal.class);
-            registerBlock(AE2Utilix.BLOCK_INTERFACE_TERMINAL, "interface_terminal");
-            registerTile("interface_terminal",
-                    com.ae2utilix.ae2_utilix.block.terminal.TilePatternAccessTerminal.class);
-        }
+
         if (AE2UtilixConfig.registerMEChannelCaller) {
             // The whole caller lives behind this one call, so a disabled option keeps its
             // block, item, tile entity and event handlers out of the class loading path.

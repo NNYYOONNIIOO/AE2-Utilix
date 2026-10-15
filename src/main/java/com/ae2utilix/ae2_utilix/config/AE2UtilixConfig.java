@@ -19,7 +19,6 @@ public static boolean renderFloatingItem = true;
     public static boolean registerPhaseInterface = true;
     public static boolean registerCommonInterface = true;
     public static boolean registerCrystalGrowthChamber = true;
-    public static boolean registerFullTerminals = true;
     public static boolean registerBlockStorageBus = true;
     public static boolean registerCommonBuses = true;
     public static boolean registerProductReturnCard = true;
@@ -70,8 +69,7 @@ public static boolean renderFloatingItem = true;
                     "Register the Common ME Interface block and its resource integrations.");
             registerCrystalGrowthChamber = config.getBoolean("registerCrystalGrowthChamber", "registration", true,
                     "Register the Crystal Growth Chamber and its parallel-card support.");
-            registerFullTerminals = config.getBoolean("registerFullTerminals", "registration", true,
-                    "Register the Storage, Crafting, Pattern and Interface Terminal blocks.");
+
             registerBlockStorageBus = config.getBoolean("registerBlockStorageBus", "registration", true,
                     "Register the Block Storage Bus part.");
             registerCommonBuses = config.getBoolean("registerCommonBuses", "registration", true,
