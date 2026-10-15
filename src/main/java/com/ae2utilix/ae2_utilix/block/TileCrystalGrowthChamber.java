@@ -345,10 +345,6 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile implements 
             this.ejectItems();
         }
 
-        if (!this.powered) {
-            return TickRateModulation.SLOWER;
-        }
-
         if (this.currentRecipe != null) {
             return this.processRecipe(ticksSinceLastCall);
         }

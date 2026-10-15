@@ -381,18 +381,26 @@ public class GuiCrystalGrowthChamber extends GuiContainer {
         return null;
     }
 
+    /**
+     * Draws the vanilla slot tooltips and this screen's own tooltips.
+     *
+     * <p>Vanilla calls {@link #renderHoveredToolTip(int, int)} from inside
+     * {@code drawScreen}, which is too early for tooltips that have to sit above the
+     * slot item highlights. The Forge build solved this with a post-render event; here
+     * the whole tooltip pass simply runs after {@code super.drawScreen} returns.</p>
+     */
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
         super.drawScreen(mouseX, mouseY, partialTicks);
+        drawTooltips(mouseX, mouseY);
     }
 
+    /**
+     * Suppressed here: the item tooltip is drawn from {@link #drawScreen} instead, after
+     * vanilla finished its item highlight pass, so it is never painted over.
+     */
     @Override
     protected void renderHoveredToolTip(int mouseX, int mouseY) {
-    }
-
-    public void drawTooltipsLate(int mouseX, int mouseY) {
-        super.renderHoveredToolTip(mouseX, mouseY);
-        drawTooltips(mouseX, mouseY);
     }
 
     private static final String[] FACE_KEYS = {
@@ -407,6 +415,9 @@ public class GuiCrystalGrowthChamber extends GuiContainer {
     private void drawTooltips(int mouseX, int mouseY) {
         int rx = mouseX - guiLeft;
         int ry = mouseY - guiTop;
+
+        // Slot item tooltips come from vanilla, drawn now that the screen is complete.
+        super.renderHoveredToolTip(mouseX, mouseY);
 
         if (isInBounds(rx, ry, button_off_X, button_off_Y, button_W, button_H)) {
             List<String> lines = new ArrayList<>();
