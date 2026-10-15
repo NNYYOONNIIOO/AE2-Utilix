@@ -33,11 +33,27 @@ public class CrystalGrowthRecipes {
             }
             try (InputStreamReader reader = new InputStreamReader(stream, StandardCharsets.UTF_8)) {
                 JsonObject json = new Gson().fromJson(reader, JsonObject.class);
-                recipes.add(CrystalGrowthRecipe.fromJson(json));
+                CrystalGrowthRecipe recipe = CrystalGrowthRecipe.fromJson(json);
+                recipes.add(recipe);
+                AE2Utilix.LOGGER.info("Crystal growth recipe loaded: {} inputs={} fluid={} outputs={} time={} energy={}",
+                        path, describe(recipe.getInputs()), recipe.getInputFluid(),
+                        describe(recipe.getOutputs()), recipe.getProcessingTime(), recipe.getEnergyCost());
             } catch (Exception e) {
                 AE2Utilix.LOGGER.error("Failed to load recipe: " + path, e);
             }
         }
+    }
+
+    /** Renders a stack list for the load log, so a half-parsed recipe is visible. */
+    private static String describe(List<?> stacks) {
+        StringBuilder out = new StringBuilder("[");
+        for (int i = 0; i < stacks.size(); i++) {
+            if (i > 0) {
+                out.append(", ");
+            }
+            out.append(stacks.get(i));
+        }
+        return out.append(']').toString();
     }
 
     public static List<CrystalGrowthRecipe> getRecipes() {

@@ -20,7 +20,7 @@ group = root_package
 
 base {
     // The suffix keeps the Cleanroom build apart from the Forge one.
-    archivesName = "${mod_id}-crl"
+    archivesName = "ae2s_utilix"
 }
 
 java {

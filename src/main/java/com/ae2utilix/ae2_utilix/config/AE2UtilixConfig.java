@@ -27,6 +27,9 @@ public static boolean renderFloatingItem = true;
     public static boolean registerMatterDecomposer = true;
     public static boolean registerMEChannelCaller = true;
 
+    /** Logs crystal growth chamber ticks and recipe loading. */
+    public static boolean debugCrystalGrowth = false;
+
 
     private static File loadedFile;
 
@@ -79,6 +82,8 @@ public static boolean renderFloatingItem = true;
                     "Register the Matter Decomposer.");
             registerMEChannelCaller = config.getBoolean("registerMEChannelCaller", "registration", true,
                     "Register the ME Channel Caller and its switchable channel transport support.");
+            debugCrystalGrowth = config.getBoolean("debugCrystalGrowth", "debug", false,
+                    "Log crystal growth chamber ticking and recipe loading for diagnosis.");
 
         } finally {
             if (config.hasChanged()) {

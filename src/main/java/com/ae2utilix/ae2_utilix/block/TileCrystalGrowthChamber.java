@@ -352,8 +352,31 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile implements 
         if (this.currentRecipe != null) {
             return this.processRecipe(ticksSinceLastCall);
         }
-        return this.tryStartRecipe();
+        TickRateModulation result = this.tryStartRecipe();
+        if (com.ae2utilix.ae2_utilix.config.AE2UtilixConfig.debugCrystalGrowth) {
+            com.ae2utilix.ae2_utilix.AE2Utilix.LOGGER.info(
+                    "CGC tick at {}: powered={} power={}/{} recipe={} inputs={} fluid={}",
+                    this.pos, this.powered, this.getInternalCurrentPower(), this.getInternalMaxPower(),
+                    this.currentRecipe != null, describeInputs(), this.inputTank.getFluid());
+        }
+        return result;
     }
+
+    /** Summarises the nine input slots for the diagnostic log. */
+    private String describeInputs() {
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < INPUT_SLOTS; i++) {
+            ItemStack stack = this.inputInv.getStackInSlot(i);
+            if (!stack.isEmpty()) {
+                if (out.length() > 0) {
+                    out.append(", ");
+                }
+                out.append(stack.getCount()).append('x').append(stack.getDisplayName());
+            }
+        }
+        return out.length() == 0 ? "-" : out.toString();
+    }
+
 
     private void ejectItems() {
         for (EnumFacing facing : EnumFacing.values()) {
