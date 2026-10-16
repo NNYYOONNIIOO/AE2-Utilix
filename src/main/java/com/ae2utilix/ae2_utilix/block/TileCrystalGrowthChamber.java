@@ -510,12 +510,9 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
             this.refreshNodeConnections();
             return;
         }
-        boolean registered = TickHandler.instance().getGridList().contains(grid);
         com.ae2utilix.ae2_utilix.AE2Utilix.LOGGER.info(
-                "Crystal growth chamber at {}: the grid tick manager has not ticked this node for {} ticks."
-                        + " repairStage={} pivot={} gridRegisteredInAeTickHandler={} tickState={}",
-                this.pos, GRID_TICK_WATCHDOG_TICKS, this.repairStage, grid.getPivot(), registered,
-                describeTickState(grid, gridNode));
+                "Crystal growth chamber at {}: its network was not ticked, repairing it (step {}).",
+                this.pos, this.repairStage);
 
         // Escalating repair: first re-queue the tick tracker, then make sure AE2 still ticks the
         // network this node is on, and finally rebuild the node's connections as a last resort.
@@ -553,16 +550,6 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
         node.setExposedOnSides(EnumSet.allOf(EnumFacing.class));
     }
 
-    /** Dumps AE2's own view of this node's tick tracker, so a stuck network can be diagnosed. */
-    private static String describeTickState(IGrid grid, IGridNode node) {
-        try {
-            Object manager = grid.getTickManager();
-            Object status = manager.getClass().getMethod("getStatus", IGridNode.class).invoke(manager, node);
-            return String.valueOf(status);
-        } catch (Throwable t) {
-            return "unavailable (" + t.getClass().getSimpleName() + ")";
-        }
-    }
 
     /**
      * The grid tick manager ticks this node every few seconds, which is all the chamber needs
