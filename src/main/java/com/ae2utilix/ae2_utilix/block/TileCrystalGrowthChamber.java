@@ -6,6 +6,8 @@ import ae2.api.inventories.InternalInventory;
 import ae2.api.networking.IGrid;
 import ae2.api.networking.IGridNode;
 import ae2.api.networking.IManagedGridNode;
+import ae2.hooks.ticking.TickHandler;
+import ae2.me.Grid;
 import ae2.api.networking.ticking.IGridTickable;
 import ae2.api.networking.ticking.TickRateModulation;
 import ae2.api.networking.ticking.TickingRequest;
@@ -61,8 +63,8 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
     private static final int GRID_REATTACH_DELAY_TICKS = 40;
     /** Ticks without a grid tick before the chamber assumes the grid is not being ticked. */
     private static final int GRID_TICK_WATCHDOG_TICKS = 100;
-    /** Minimum ticks between two forced node re-connections. */
-    private static final int GRID_REATTACH_COOLDOWN_TICKS = 1200;
+    /** Minimum ticks between two repair attempts. */
+    private static final int GRID_REATTACH_COOLDOWN_TICKS = 200;
 
     private final AppEngInternalInventory inputInv = new AppEngInternalInventory(this, INPUT_SLOTS);
     private final AppEngInternalInventory outputInv = new AppEngInternalInventory(this, OUTPUT_SLOTS);
@@ -85,6 +87,8 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
     private boolean ejecting = false;
     private int ticksSinceGridTick = 0;
     private int reattachCooldown = 0;
+    /** Which repair step the watchdog tries next. */
+    private int repairStage = 0;
     private final boolean[] faceEjectConfig = new boolean[6];
 
     private int progress = 0;
@@ -493,15 +497,71 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
         this.ticksSinceGridTick = 0;
         this.reattachCooldown = GRID_REATTACH_COOLDOWN_TICKS;
 
-        if (hasGrid) {
-            com.ae2utilix.ae2_utilix.AE2Utilix.LOGGER.info(
-                    "Crystal growth chamber at {} reconnects its node: the grid tick manager did not"
-                            + " tick this node for {} ticks, so its network is not being ticked.",
-                    this.pos, GRID_TICK_WATCHDOG_TICKS);
+        if (!hasGrid) {
+            this.repairStage = 0;
+            this.refreshNodeConnections();
+            return;
         }
 
+        IGrid grid = node.getGrid();
+        IGridNode gridNode = node.getNode();
+        if (grid == null || gridNode == null) {
+            this.repairStage = 0;
+            this.refreshNodeConnections();
+            return;
+        }
+        boolean registered = TickHandler.instance().getGridList().contains(grid);
+        com.ae2utilix.ae2_utilix.AE2Utilix.LOGGER.info(
+                "Crystal growth chamber at {}: the grid tick manager has not ticked this node for {} ticks."
+                        + " repairStage={} pivot={} gridRegisteredInAeTickHandler={} tickState={}",
+                this.pos, GRID_TICK_WATCHDOG_TICKS, this.repairStage, grid.getPivot(), registered,
+                describeTickState(grid, gridNode));
+
+        // Escalating repair: first re-queue the tick tracker, then make sure AE2 still ticks the
+        // network this node is on, and finally rebuild the node's connections as a last resort.
+        switch (this.repairStage) {
+            case 0 -> {
+                this.repairStage = 1;
+                if (grid.getTickManager().alertDevice(gridNode)) { return; }
+                this.repairStage = 2;
+                reRegisterGrid(grid);
+            }
+            case 1 -> {
+                this.repairStage = 2;
+                reRegisterGrid(grid);
+            }
+            default -> {
+                this.repairStage = 0;
+                this.refreshNodeConnections();
+            }
+        }
+    }
+
+    /** Puts the grid back into AE2's tick handler, which skips networks it does not know about. */
+    private static void reRegisterGrid(IGrid grid) {
+        if (grid instanceof Grid concrete) {
+            TickHandler handler = TickHandler.instance();
+            handler.removeNetwork(concrete);
+            handler.addNetwork(concrete);
+        }
+    }
+
+    /** Forces the node to look for adjacent nodes again, which rebuilds the network graph. */
+    private void refreshNodeConnections() {
+        IManagedGridNode node = this.getMainNode();
         node.setExposedOnSides(Collections.emptySet());
         node.setExposedOnSides(EnumSet.allOf(EnumFacing.class));
+    }
+
+    /** Dumps AE2's own view of this node's tick tracker, so a stuck network can be diagnosed. */
+    private static String describeTickState(IGrid grid, IGridNode node) {
+        try {
+            Object manager = grid.getTickManager();
+            Object status = manager.getClass().getMethod("getStatus", IGridNode.class).invoke(manager, node);
+            return String.valueOf(status);
+        } catch (Throwable t) {
+            return "unavailable (" + t.getClass().getSimpleName() + ")";
+        }
     }
 
     /**
@@ -517,6 +577,7 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
     @Override
     public TickRateModulation tickingRequest(IGridNode node, int ticksSinceLastCall) {
         this.ticksSinceGridTick = 0;
+        this.repairStage = 0;
         return TickRateModulation.SLOWER;
     }
 
