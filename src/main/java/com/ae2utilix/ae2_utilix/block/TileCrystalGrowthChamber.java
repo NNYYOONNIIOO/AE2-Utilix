@@ -172,9 +172,19 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
         if (data.hasKey("faceEject")) {
             unpackBooleans(data.getByteArray("faceEject"), this.faceEjectConfig);
         }
-        // Resume the batch that was running when the world was saved. The recipe is stored
-        // as its own tag, so a reload continues from the saved progress instead of giving
-        // up the batch or leaving the chamber stuck on a recipe it cannot match again.
+        // Tanks must be restored before the batch is validated: isFluidEqual and the
+        // quantity check both read the input tank, and an empty tank would reject every
+        // fluid-using recipe and silently throw the running batch away.
+        if (data.hasKey("inputTank")) {
+            this.inputTank.readFromNBT(data.getCompoundTag("inputTank"));
+        }
+        if (data.hasKey("outputTank")) {
+            this.outputTank.readFromNBT(data.getCompoundTag("outputTank"));
+        }
+
+        // Resume the batch that was running when the world was saved. The recipe travels in
+        // its own tag, so the chamber continues from the saved progress instead of giving
+        // the batch up or restarting it.
         this.currentRecipe = data.hasKey("activeRecipe", 10)
                 ? CrystalGrowthRecipe.readFromNBT(data.getCompoundTag("activeRecipe"))
                 : null;
@@ -182,7 +192,7 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
         this.progress = data.hasKey("activeProgress") ? data.getInteger("activeProgress") : 0;
         this.maxProgress = data.hasKey("activeMaxProgress") ? data.getInteger("activeMaxProgress") : 100;
 
-        // A batch whose inputs are gone by the time the world loads cannot be completed.
+        // A batch whose inputs were removed while the world was unloaded cannot complete.
         if (this.currentRecipe != null && !this.currentRecipe.matches(
                 this.inputInv.toItemHandler(), this.inputTank.getFluid(), Math.max(1, this.currentParallelRuns))) {
             this.currentRecipe = null;
@@ -190,12 +200,22 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
             this.progress = 0;
             this.maxProgress = 100;
         }
-        if (data.hasKey("inputTank")) {
-            this.inputTank.readFromNBT(data.getCompoundTag("inputTank"));
+        if (com.ae2utilix.ae2_utilix.config.AE2UtilixConfig.debugCrystalGrowth) {
+            com.ae2utilix.ae2_utilix.AE2Utilix.LOGGER.info(
+                    "CGC load at {}: recipe={} progress={}/{} parallel={} inputs={} fluid={}",
+                    this.pos, this.currentRecipe != null, this.progress, this.maxProgress, this.currentParallelRuns,
+                    describeInputs(), this.inputTank.getFluid());
         }
-        if (data.hasKey("outputTank")) {
-            this.outputTank.readFromNBT(data.getCompoundTag("outputTank"));
-        }
+    }
+
+    @Override
+    public void onReady() {
+        super.onReady();
+        // A chamber that was saved while a batch was running has to keep ticking without a
+        // manual block update. Supergiant puts the restored node back into its tick queue on
+        // its own, but waking it here also covers nodes that came back as sleeping, which is
+        // what left the chamber frozen at progress 0 until its cable was reconnected.
+        this.getMainNode().ifPresent((grid, node) -> grid.getTickManager().wakeDevice(node));
     }
 
     @Override
