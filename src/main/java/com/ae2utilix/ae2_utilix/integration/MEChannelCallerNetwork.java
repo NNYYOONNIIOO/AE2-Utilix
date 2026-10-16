@@ -1121,7 +1121,20 @@ public final class MEChannelCallerNetwork {
                 }
             }
 
-            boolean same = assignment.length == lastAssignment.length && links.size() == receivers.size();
+            // Faces without a sender are normal (a listener whose demand cannot be covered
+            // yet), so the expected link count is the number of assigned faces. Comparing
+            // against receivers.size() would look "changed" on every pass, which tore the
+            // whole wireless link down and rebuilt it every refresh. Every rebuild merges
+            // and splits the two networks again, and AE2 re-creates the tick tracker of
+            // every node whose grid changed, so devices on those networks never survived
+            // long enough to be ticked (export buses stopped pushing items and fluids).
+            int expectedLinks = 0;
+            for (int i = 0; i < assignment.length; i++) {
+                if (assignment[i] != null) {
+                    expectedLinks++;
+                }
+            }
+            boolean same = assignment.length == lastAssignment.length && links.size() == expectedLinks;
             if (same) {
                 for (int i = 0; i < assignment.length; i++) {
                     if (assignment[i] != lastAssignment[i]) {
