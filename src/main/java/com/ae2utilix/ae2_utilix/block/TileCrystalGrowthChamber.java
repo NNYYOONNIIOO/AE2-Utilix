@@ -3,16 +3,14 @@ package com.ae2utilix.ae2_utilix.block;
 import ae2.api.config.Actionable;
 import ae2.api.config.PowerMultiplier;
 import ae2.api.inventories.InternalInventory;
-import ae2.api.networking.IGridNode;
-import ae2.api.networking.energy.IEnergyService;
-import ae2.api.networking.ticking.IGridTickable;
-import ae2.api.networking.ticking.TickRateModulation;
-import ae2.api.networking.ticking.TickingRequest;
+import ae2.api.networking.IGrid;
+import ae2.api.networking.IManagedGridNode;
 import ae2.api.upgrades.IUpgradeInventory;
 import ae2.api.upgrades.IUpgradeableObject;
 import ae2.api.upgrades.UpgradeInventories;
 import ae2.api.util.AECableType;
 import ae2.core.definitions.AEItems;
+import ae2.tile.ServerTickingTile;
 import ae2.tile.grid.AENetworkedPoweredTile;
 import ae2.util.inv.AppEngInternalInventory;
 import ae2.util.inv.CombinedInternalInventory;
@@ -37,6 +35,7 @@ import net.minecraftforge.items.ItemHandlerHelper;
 
 import javax.annotation.Nullable;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.EnumSet;
 
 /**
@@ -44,7 +43,7 @@ import java.util.EnumSet;
  * crystals. Ported from the Forge build, adapted to Supergiant's tile/inventory API.
  */
 public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
-        implements IGridTickable, IUpgradeableObject {
+        implements ServerTickingTile, IUpgradeableObject {
 
     private static final double MAX_POWER = 100000.0;
     private static final double EXTRACT_RATE = 8000.0;
@@ -54,6 +53,8 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
     public static final int UPGRADE_SLOTS = 5;
     /** Cap on parallel cards, so the batch size stays bounded. */
     public static final int MAX_PARALLEL_CARDS = 5;
+    /** Ticks a chamber without a network waits before it looks for adjacent nodes again. */
+    private static final int GRID_REATTACH_DELAY_TICKS = 40;
 
     private final AppEngInternalInventory inputInv = new AppEngInternalInventory(this, INPUT_SLOTS);
     private final AppEngInternalInventory outputInv = new AppEngInternalInventory(this, OUTPUT_SLOTS);
@@ -74,6 +75,7 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
 
     private boolean powered = false;
     private boolean ejecting = false;
+    private int ticksWithoutGrid = 0;
     private final boolean[] faceEjectConfig = new boolean[6];
 
     private int progress = 0;
@@ -90,7 +92,7 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
         this.setInternalMaxPower(MAX_POWER);
         this.setInternalPublicPowerStorage(false);
         this.setPowerSides(EnumSet.allOf(EnumFacing.class));
-        this.getMainNode().setIdlePowerUsage(0).addService(IGridTickable.class, this);
+        this.getMainNode().setIdlePowerUsage(0);
     }
 
     @Override
@@ -144,8 +146,8 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
 
     @Override
     public void onChangeInventory(AppEngInternalInventory inv, int slot) {
+        // The chamber ticks itself, so a changed inventory only has to be persisted.
         this.saveChanges();
-        this.getMainNode().ifPresent((grid, node) -> grid.getTickManager().wakeDevice(node));
     }
 
     @Override
@@ -208,15 +210,6 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
         }
     }
 
-    @Override
-    public void onReady() {
-        super.onReady();
-        // A chamber that was saved while a batch was running has to keep ticking without a
-        // manual block update. Supergiant puts the restored node back into its tick queue on
-        // its own, but waking it here also covers nodes that came back as sleeping, which is
-        // what left the chamber frozen at progress 0 until its cable was reconnected.
-        this.getMainNode().ifPresent((grid, node) -> grid.getTickManager().wakeDevice(node));
-    }
 
     @Override
     public void saveAdditional(NBTTagCompound data) {
@@ -399,39 +392,77 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
 
     // ------------------------------------------------------------------- ticking
 
+    /**
+     * Drives the chamber from the block entity tick instead of the grid tick manager.
+     *
+     * <p>{@link ServerTickingTile} is Supergiant's own hook for machines that need a server
+     * tick every tick, and it keeps a running batch alive after the world is reloaded, when
+     * the grid tick manager does not necessarily resume ticking this node again.</p>
+     */
     @Override
-    public TickingRequest getTickingRequest(IGridNode node) {
-        return new TickingRequest(1, 40, false);
-    }
-
-    @Override
-    public TickRateModulation tickingRequest(IGridNode node, int ticksSinceLastCall) {
-        CrystalGrowthRecipes.init();
-
-        if (this.getInternalCurrentPower() < this.getInternalMaxPower()) {
-            double demand = Math.min(EXTRACT_RATE, this.getInternalMaxPower() - this.getInternalCurrentPower());
-            IEnergyService energy = node.grid().getEnergyService();
-            double extracted = energy.extractAEPower(demand, Actionable.MODULATE, PowerMultiplier.ONE);
-            if (extracted > 0) {
-                this.injectAEPower(extracted, Actionable.MODULATE);
-            }
+    public void serverTick() {
+        if (this.world == null || this.world.isRemote) {
+            return;
         }
+
+        CrystalGrowthRecipes.init();
+        this.reattachToGridIfNeeded();
+        this.pullPowerFromGrid();
 
         if (this.ejecting) {
             this.ejectItems();
         }
 
         if (this.currentRecipe != null) {
-            return this.processRecipe(ticksSinceLastCall);
+            this.processRecipe();
+        } else {
+            this.tryStartRecipe();
         }
-        TickRateModulation result = this.tryStartRecipe();
+
         if (com.ae2utilix.ae2_utilix.config.AE2UtilixConfig.debugCrystalGrowth) {
             com.ae2utilix.ae2_utilix.AE2Utilix.LOGGER.info(
-                    "CGC tick at {}: powered={} power={}/{} recipe={} inputs={} fluid={}",
-                    this.pos, this.powered, this.getInternalCurrentPower(), this.getInternalMaxPower(),
-                    this.currentRecipe != null, describeInputs(), this.inputTank.getFluid());
+                    "CGC tick at {}: power={}/{} recipe={} progress={}/{} parallel={} inputs={} fluid={}",
+                    this.pos, this.getInternalCurrentPower(), this.getInternalMaxPower(),
+                    this.currentRecipe != null, this.progress, this.maxProgress, this.currentParallelRuns,
+                    describeInputs(), this.inputTank.getFluid());
         }
-        return result;
+    }
+
+    /** Refills the internal buffer from the energy service of the network this node is on. */
+    private void pullPowerFromGrid() {
+        if (this.getInternalCurrentPower() >= this.getInternalMaxPower()) {
+            return;
+        }
+        IGrid grid = this.getMainNode().getGrid();
+        if (grid == null) {
+            return;
+        }
+        double demand = Math.min(EXTRACT_RATE, this.getInternalMaxPower() - this.getInternalCurrentPower());
+        double extracted = grid.getEnergyService().extractAEPower(demand, Actionable.MODULATE, PowerMultiplier.ONE);
+        if (extracted > 0) {
+            this.injectAEPower(extracted, Actionable.MODULATE);
+        }
+    }
+
+    /**
+     * Re-runs the node's connection discovery when the chamber lost its network.
+     *
+     * <p>A node without a grid can neither draw power nor report its state, which used to
+     * leave a reloaded chamber frozen until a cable next to it was broken and replaced.
+     * Toggling the exposed sides makes the node look for adjacent nodes again.</p>
+     */
+    private void reattachToGridIfNeeded() {
+        IManagedGridNode node = this.getMainNode();
+        if (!node.isReady() || node.getGrid() != null) {
+            this.ticksWithoutGrid = 0;
+            return;
+        }
+        if (++this.ticksWithoutGrid < GRID_REATTACH_DELAY_TICKS) {
+            return;
+        }
+        this.ticksWithoutGrid = 0;
+        node.setExposedOnSides(Collections.emptySet());
+        node.setExposedOnSides(EnumSet.allOf(EnumFacing.class));
     }
 
     /** Summarises the nine input slots for the diagnostic log. */
@@ -494,7 +525,17 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
         }
     }
 
-    private TickRateModulation tryStartRecipe() {
+    private void tryStartRecipe() {
+        // Nothing can match without items or fluid, so idle chambers stay cheap.
+        if (!this.hasAnyInput()) {
+            if (this.progress > 0) {
+                this.progress = 0;
+                this.maxProgress = 100;
+                this.markForUpdate();
+            }
+            return;
+        }
+
         int maxParallelRuns = this.getMaxParallelRuns();
         CrystalGrowthRecipe recipe = null;
         int parallelRuns = 0;
@@ -519,34 +560,47 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
                 this.maxProgress = 100;
                 this.markForUpdate();
             }
-            return TickRateModulation.SLOWER;
+            return;
         }
 
         double energyPerTick = this.getAdjustedEnergyPerTick(recipe.getEnergyCost(), recipe.getProcessingTime())
                 * parallelRuns;
         if (this.getInternalCurrentPower() < energyPerTick) {
-            return TickRateModulation.SLOWER;
+            return;
         }
 
         this.currentRecipe = recipe;
         this.currentParallelRuns = parallelRuns;
         this.maxProgress = this.getAdjustedProcessingTime(recipe.getProcessingTime());
         this.progress = 0;
-
-        return TickRateModulation.FASTER;
+        this.markForUpdate();
     }
 
-    private TickRateModulation processRecipe(int ticksSinceLastCall) {
+    /** True when the chamber holds anything a recipe could consume. */
+    private boolean hasAnyInput() {
+        FluidStack fluid = this.inputTank.getFluid();
+        if (fluid != null && fluid.amount > 0) {
+            return true;
+        }
+        for (int i = 0; i < INPUT_SLOTS; i++) {
+            if (!this.inputInv.getStackInSlot(i).isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void processRecipe() {
         int parallelRuns = Math.max(1, this.currentParallelRuns);
         double energyPerTick = this.getAdjustedEnergyPerTick(this.currentRecipe.getEnergyCost(),
                 this.currentRecipe.getProcessingTime()) * parallelRuns;
 
         if (this.getInternalCurrentPower() < energyPerTick) {
-            return TickRateModulation.SLOWER;
+            return;
         }
 
         this.extractAEPower(energyPerTick, Actionable.MODULATE);
-        this.progress += ticksSinceLastCall;
+        this.progress++;
         this.markForUpdate();
 
         if (this.progress >= this.maxProgress) {
@@ -572,18 +626,15 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
                 this.currentParallelRuns = 0;
                 this.progress = 0;
                 this.maxProgress = 100;
-                TickRateModulation result = this.tryStartRecipe();
-                return result == TickRateModulation.IDLE ? TickRateModulation.URGENT : result;
+                this.tryStartRecipe();
+                return;
             }
 
             // The batch finished its work but the payout is blocked: the inputs were
             // removed or the output slots filled up. Keep the finished batch and retry,
             // so nothing the player already paid for is silently thrown away.
             this.saveChanges();
-            return TickRateModulation.SLOWER;
         }
-
-        return TickRateModulation.FASTER;
     }
 
     /**
