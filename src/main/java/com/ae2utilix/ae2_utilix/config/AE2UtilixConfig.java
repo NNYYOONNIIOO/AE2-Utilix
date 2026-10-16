@@ -27,6 +27,12 @@ public static boolean renderFloatingItem = true;
     public static boolean registerMatterDecomposer = true;
     public static boolean registerMEChannelCaller = true;
 
+    /**
+     * Re-connects a machine's grid node when AE2's tick manager stopped ticking its network.
+     * Without this, devices loaded from a save can stay dead until a cable is replaced.
+     */
+    public static boolean autoRepairGridTick = true;
+
     /** Logs crystal growth chamber ticks and recipe loading. */
     public static boolean debugCrystalGrowth = false;
 
@@ -82,6 +88,9 @@ public static boolean renderFloatingItem = true;
                     "Register the Matter Decomposer.");
             registerMEChannelCaller = config.getBoolean("registerMEChannelCaller", "registration", true,
                     "Register the ME Channel Caller and its switchable channel transport support.");
+            autoRepairGridTick = config.getBoolean("autoRepairGridTick", "common", true,
+                    "Rebuild a machine's grid node when the AE2 grid tick manager stopped ticking its network."
+                            + " Fixes machines, export buses and other devices going dead after loading a world.");
             debugCrystalGrowth = config.getBoolean("debugCrystalGrowth", "debug", false,
                     "Log crystal growth chamber ticking and recipe loading for diagnosis.");
 

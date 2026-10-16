@@ -4,7 +4,11 @@ import ae2.api.config.Actionable;
 import ae2.api.config.PowerMultiplier;
 import ae2.api.inventories.InternalInventory;
 import ae2.api.networking.IGrid;
+import ae2.api.networking.IGridNode;
 import ae2.api.networking.IManagedGridNode;
+import ae2.api.networking.ticking.IGridTickable;
+import ae2.api.networking.ticking.TickRateModulation;
+import ae2.api.networking.ticking.TickingRequest;
 import ae2.api.upgrades.IUpgradeInventory;
 import ae2.api.upgrades.IUpgradeableObject;
 import ae2.api.upgrades.UpgradeInventories;
@@ -43,7 +47,7 @@ import java.util.EnumSet;
  * crystals. Ported from the Forge build, adapted to Supergiant's tile/inventory API.
  */
 public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
-        implements ServerTickingTile, IUpgradeableObject {
+        implements IGridTickable, ServerTickingTile, IUpgradeableObject {
 
     private static final double MAX_POWER = 100000.0;
     private static final double EXTRACT_RATE = 8000.0;
@@ -53,8 +57,12 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
     public static final int UPGRADE_SLOTS = 5;
     /** Cap on parallel cards, so the batch size stays bounded. */
     public static final int MAX_PARALLEL_CARDS = 5;
-    /** Ticks a chamber without a network waits before it looks for adjacent nodes again. */
+    /** Ticks without a network before the chamber looks for adjacent nodes again. */
     private static final int GRID_REATTACH_DELAY_TICKS = 40;
+    /** Ticks without a grid tick before the chamber assumes the grid is not being ticked. */
+    private static final int GRID_TICK_WATCHDOG_TICKS = 100;
+    /** Minimum ticks between two forced node re-connections. */
+    private static final int GRID_REATTACH_COOLDOWN_TICKS = 1200;
 
     private final AppEngInternalInventory inputInv = new AppEngInternalInventory(this, INPUT_SLOTS);
     private final AppEngInternalInventory outputInv = new AppEngInternalInventory(this, OUTPUT_SLOTS);
@@ -75,7 +83,8 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
 
     private boolean powered = false;
     private boolean ejecting = false;
-    private int ticksWithoutGrid = 0;
+    private int ticksSinceGridTick = 0;
+    private int reattachCooldown = 0;
     private final boolean[] faceEjectConfig = new boolean[6];
 
     private int progress = 0;
@@ -92,7 +101,10 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
         this.setInternalMaxPower(MAX_POWER);
         this.setInternalPublicPowerStorage(false);
         this.setPowerSides(EnumSet.allOf(EnumFacing.class));
-        this.getMainNode().setIdlePowerUsage(0);
+        // The node also acts as a watchdog: AE2's tick manager ticks it, which proves that
+        // the grid's tick queue is still running. Supergiant does not tick a grid whose
+        // pivot was lost, and then nothing on that network runs any more.
+        this.getMainNode().setIdlePowerUsage(0).addService(IGridTickable.class, this);
     }
 
     @Override
@@ -406,7 +418,7 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
         }
 
         CrystalGrowthRecipes.init();
-        this.reattachToGridIfNeeded();
+        this.watchGridTick();
         this.pullPowerFromGrid();
 
         if (this.ejecting) {
@@ -445,24 +457,67 @@ public class TileCrystalGrowthChamber extends AENetworkedPoweredTile
     }
 
     /**
-     * Re-runs the node's connection discovery when the chamber lost its network.
+     * Keeps an eye on the grid tick manager and re-forms the network when it stopped.
      *
-     * <p>A node without a grid can neither draw power nor report its state, which used to
-     * leave a reloaded chamber frozen until a cable next to it was broken and replaced.
-     * Toggling the exposed sides makes the node look for adjacent nodes again.</p>
+     * <p>Supergiant skips the per-tick service callbacks of a grid whose pivot was lost, and
+     * then nothing on that network is ticked any more: export buses stop pushing, crafting
+     * stops, and a chamber could not even be filled by automation. {@link #tickingRequest}
+     * resets the counter below whenever the grid tick still reaches this node, so a counter
+     * that runs past the watchdog means the network needs to be rebuilt. Re-connecting the
+     * node is what breaking and replacing a cable used to do by hand.</p>
      */
-    private void reattachToGridIfNeeded() {
+    private void watchGridTick() {
+        if (this.reattachCooldown > 0) {
+            this.reattachCooldown--;
+        }
+
         IManagedGridNode node = this.getMainNode();
-        if (!node.isReady() || node.getGrid() != null) {
-            this.ticksWithoutGrid = 0;
+        if (!node.isReady()) {
+            this.ticksSinceGridTick = 0;
             return;
         }
-        if (++this.ticksWithoutGrid < GRID_REATTACH_DELAY_TICKS) {
+        if (!com.ae2utilix.ae2_utilix.config.AE2UtilixConfig.autoRepairGridTick) {
             return;
         }
-        this.ticksWithoutGrid = 0;
+
+        boolean hasGrid = node.getGrid() != null;
+        int threshold = hasGrid ? GRID_TICK_WATCHDOG_TICKS : GRID_REATTACH_DELAY_TICKS;
+        if (this.ticksSinceGridTick < threshold) {
+            this.ticksSinceGridTick++;
+            return;
+        }
+        if (this.reattachCooldown > 0) {
+            return;
+        }
+
+        this.ticksSinceGridTick = 0;
+        this.reattachCooldown = GRID_REATTACH_COOLDOWN_TICKS;
+
+        if (hasGrid) {
+            com.ae2utilix.ae2_utilix.AE2Utilix.LOGGER.info(
+                    "Crystal growth chamber at {} reconnects its node: the grid tick manager did not"
+                            + " tick this node for {} ticks, so its network is not being ticked.",
+                    this.pos, GRID_TICK_WATCHDOG_TICKS);
+        }
+
         node.setExposedOnSides(Collections.emptySet());
         node.setExposedOnSides(EnumSet.allOf(EnumFacing.class));
+    }
+
+    /**
+     * The grid tick manager ticks this node every few seconds, which is all the chamber needs
+     * it for: the watchdog above and the tooltip/log state. The actual work is done by
+     * {@link #serverTick()} so a running batch survives a world reload.
+     */
+    @Override
+    public TickingRequest getTickingRequest(IGridNode node) {
+        return new TickingRequest(1, 40, false);
+    }
+
+    @Override
+    public TickRateModulation tickingRequest(IGridNode node, int ticksSinceLastCall) {
+        this.ticksSinceGridTick = 0;
+        return TickRateModulation.SLOWER;
     }
 
     /** Summarises the nine input slots for the diagnostic log. */
